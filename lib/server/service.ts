@@ -1,15 +1,7 @@
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import { db } from './db';
-import {
-  admin,
-  type Actor,
-  HttpError,
-  publicUser,
-  COOKIE,
-  digest,
-  userFor,
-} from './auth';
+import { admin, type Actor, HttpError, publicUser } from './auth';
 import {
   approvedTotals,
   assertStageOrder,
@@ -337,17 +329,6 @@ function validateCandidate(
   }
 }
 export async function mutate(path: string, req: Request, user: Actor) {
-  if (path === 'logout') {
-    const token = req.headers
-      .get('cookie')
-      ?.split(';')
-      .map((s) => s.trim())
-      .find((s) => s.startsWith(COOKIE + '='))
-      ?.slice(COOKIE.length + 1);
-    if (token)
-      await db().session.deleteMany({ where: { id: await digest(token) } });
-    return { ok: true };
-  }
   if (Number(req.headers.get('content-length') || 0) > 8_000_000)
     throw new HttpError(413, 'Upload is too large.');
   const body: unknown = await req.json();
@@ -364,11 +345,6 @@ export async function mutate(path: string, req: Request, user: Actor) {
           403,
           'Your access has changed. Please sign in again.',
         );
-      // A request waiting behind an account reset must not keep using a
-      // session revoked while it waited for the project lock.
-      const sessionUser = await userFor(req, tx);
-      if (sessionUser.id !== fresh.id)
-        throw new HttpError(403, 'Account mismatch.');
       if (path === 'submission') {
         const data = submissionSchema.parse(body);
         requireThat(

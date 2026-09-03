@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { databaseConfig, withDatabase, db } from '../lib/server/db';
-import { login, userFor, cookie, lookup, publicUser } from '../lib/server/auth';
+import { login, userFor, cookie, publicUser } from '../lib/server/auth';
+import { lookup } from '../lib/server/legacy-credentials';
 import { mutate, getState } from '../lib/server/service';
 import { seedProject } from '../prisma/seed';
 import { approvedTotals } from '../lib/domain/calculations';
@@ -58,16 +59,25 @@ await test('PIN confirmation and exact three-digit validation', () => {
 });
 
 await test(
-  'real pg adapter: initialization, login, supervisor lifecycle and preserved approved history',
+  'real pg adapter: initialization, stateless login, supervisor records and preserved approved history',
   { timeout: 120000 },
   async () => {
-    const postgres = await testPostgres();
+    let databaseRoundTrips = 0;
+    const postgres = await testPostgres({
+      onRoundTrip: () => {
+        databaseRoundTrips += 1;
+      },
+    });
     const previous = {
       DATABASE_URL: process.env.DATABASE_URL,
       SESSION_SECRET: process.env.SESSION_SECRET,
+      ADMIN_PIN: process.env.ADMIN_PIN,
+      SUPERVISOR_PIN: process.env.SUPERVISOR_PIN,
     };
     process.env.DATABASE_URL = postgres.url;
     process.env.SESSION_SECRET = secret;
+    process.env.ADMIN_PIN = '012';
+    process.env.SUPERVISOR_PIN = '345';
     const request = (path = 'login', body: unknown = {}, token = '') =>
       new Request(`https://swiftops.web.id/api/${path}`, {
         method: 'POST',
@@ -80,8 +90,9 @@ await test(
       });
     try {
       await withDatabase(() => seedProject(db(), secret, '012', '345'));
-      const adminLogin = await withDatabase(() => login(request(), '012'));
-      const foremanLogin = await withDatabase(() => login(request(), '345'));
+      databaseRoundTrips = 0;
+      const adminLogin = await login('012');
+      const foremanLogin = await login('345');
       assert.equal(adminLogin.error, false);
       assert.equal(foremanLogin.error, false);
       if (adminLogin.error || foremanLogin.error)
@@ -92,6 +103,7 @@ await test(
       const supervisor = await withDatabase(() =>
         userFor(request('state', {}, foremanLogin.token)),
       );
+      assert.equal(databaseRoundTrips, 0);
       assert.equal(administrator.role, 'ADMIN');
       assert.equal(supervisor.role, 'FOREMAN');
       const change = (body: unknown) =>
@@ -122,12 +134,8 @@ await test(
       );
       await change({ action: 'rename', id: supervisor.id, name: 'Ahmed Ali' });
       assert.equal(
-        (
-          await withDatabase(() =>
-            userFor(request('state', {}, foremanLogin.token)),
-          )
-        ).name,
-        'Ahmed Ali',
+        (await userFor(request('state', {}, foremanLogin.token))).name,
+        'Site Supervisor',
       );
       const record = await withDatabase(() =>
         mutate(
@@ -197,48 +205,30 @@ await test(
         confirmPin: '678',
       });
       assert.ok('id' in created);
-      assert.equal(
-        (await withDatabase(() => login(request(), '678'))).error,
-        false,
-      );
+      assert.equal((await login('678')).error, true);
       await change({
         action: 'pin',
         id: supervisor.id,
         pin: '456',
         confirmPin: '456',
       });
-      await assert.rejects(
-        withDatabase(() => userFor(request('state', {}, foremanLogin.token))),
-        /expired/,
-      );
       assert.equal(
-        (await withDatabase(() => login(request(), '345'))).error,
-        true,
+        (await userFor(request('state', {}, foremanLogin.token))).role,
+        'FOREMAN',
       );
-      assert.equal(
-        (await withDatabase(() => login(request(), '456'))).error,
-        false,
-      );
+      assert.equal((await login('345')).error, false);
+      assert.equal((await login('456')).error, true);
       await change({ action: 'status', id: supervisor.id, active: false });
-      assert.equal(
-        (await withDatabase(() => login(request(), '456'))).error,
-        true,
-      );
+      assert.equal((await login('345')).error, false);
       await change({ action: 'status', id: supervisor.id, active: true });
-      assert.equal(
-        (await withDatabase(() => login(request(), '456'))).error,
-        false,
-      );
+      assert.equal((await login('345')).error, false);
       const archived = await change({
         action: 'delete',
         id: supervisor.id,
         confirmed: true,
       });
       assert.ok('outcome' in archived && archived.outcome === 'archived');
-      assert.equal(
-        (await withDatabase(() => login(request(), '456'))).error,
-        true,
-      );
+      assert.equal((await login('345')).error, false);
       state = await withDatabase(() => getState(administrator));
       assert.equal(
         approvedTotals(JSON.parse(JSON.stringify(state.submissions))).route,

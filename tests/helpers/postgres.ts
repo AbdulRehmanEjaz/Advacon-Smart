@@ -5,7 +5,9 @@ import { PGlite } from '@electric-sql/pglite';
 // Disposable loopback PostgreSQL wire bridge for testing the REAL pg driver
 // and Prisma adapter. Not a production database, and no secrets are needed.
 // PGlite has one backend, so integration cases use sequential transactions.
-export async function testPostgres(options: { roundTripMs?: number } = {}) {
+export async function testPostgres(
+  options: { roundTripMs?: number; onRoundTrip?: () => void } = {},
+) {
   const database = new PGlite();
   const root = new URL('../../prisma/migrations/', import.meta.url);
   for (const entry of (await readdir(root, { withFileTypes: true }))
@@ -53,6 +55,7 @@ export async function testPostgres(options: { roundTripMs?: number } = {}) {
                 await new Promise((resolve) =>
                   setTimeout(resolve, options.roundTripMs),
                 );
+              if (frame[0] === 81 || frame[0] === 83) options.onRoundTrip?.();
               if (!socket.destroyed) socket.write(result);
             })
             .catch(() => {

@@ -13,8 +13,8 @@ await test('seed diagnostics expose only safe code, message and stage', () => {
     'postgres://owner:password@example.test/app',
     'password',
     'session-secret-that-must-not-be-printed',
-    '090',
-    '111',
+    'first-pin-value',
+    'second-pin-value',
     'pinHash-value',
     'pinLookup-value',
   ];

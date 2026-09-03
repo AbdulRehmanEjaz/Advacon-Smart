@@ -3,13 +3,10 @@ import { useState } from 'react';
 import { TreePine, ArrowRight, ShieldCheck, LoaderCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Workspace } from './workspace';
-import type { State } from '@/lib/types';
 export function Login() {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [workspace, setWorkspace] = useState<State>();
   async function submit(e: { preventDefault(): void }) {
     e.preventDefault();
     setBusy(true);
@@ -20,10 +17,9 @@ export function Login() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin }),
       });
-      const d = (await r.json()) as State & { error?: string };
+      const d = (await r.json()) as { error?: string };
       if (!r.ok) throw Error(d.error || 'Unable to sign in.');
-      window.history.replaceState({}, '', '/workspace/dashboard');
-      setWorkspace(d);
+      window.location.assign('/workspace/dashboard');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to connect.');
       setPin('');
@@ -31,7 +27,6 @@ export function Login() {
       setBusy(false);
     }
   }
-  if (workspace) return <Workspace view="dashboard" initialState={workspace} />;
   return (
     <main className="login-page">
       <div className="login-orbit orbit-one" />

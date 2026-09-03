@@ -24,26 +24,35 @@ const config = JSON.parse(
 const names = (await readdir(root, { recursive: true })).filter((name) =>
   /\.(js|mjs|wasm)$/.test(name),
 );
-const worker = new Miniflare(
-  convertV4MiniflareOptions({
-    workers: [
-      {
-        modulesRoot: root,
-        modules: [config.main, ...names.filter((n) => n !== config.main)].map(
-          (name) => ({
-            type: name.endsWith('.wasm')
-              ? ('CompiledWasm' as const)
-              : ('ESModule' as const),
-            path: resolve(root, name),
-          }),
-        ),
-        compatibilityDate: config.compatibility_date,
-        compatibilityFlags: config.compatibility_flags,
-        bindings: { DATABASE_URL: database.url, SESSION_SECRET: secret },
-      },
-    ],
+const modules = [config.main, ...names.filter((n) => n !== config.main)].map(
+  (name) => ({
+    type: name.endsWith('.wasm')
+      ? ('CompiledWasm' as const)
+      : ('ESModule' as const),
+    path: resolve(root, name),
   }),
 );
+function runtime(bindings: Record<string, string>) {
+  return new Miniflare(
+    convertV4MiniflareOptions({
+      workers: [
+        {
+          modulesRoot: root,
+          modules,
+          compatibilityDate: config.compatibility_date,
+          compatibilityFlags: config.compatibility_flags,
+          bindings,
+        },
+      ],
+    }),
+  );
+}
+const loginBindings = {
+  SESSION_SECRET: secret,
+  ADMIN_PIN: '012',
+  SUPERVISOR_PIN: '345',
+};
+const worker = runtime({ DATABASE_URL: database.url, ...loginBindings });
 const origin = 'https://swiftops.test';
 const fetch = worker.dispatchFetch.bind(worker);
 async function send(path: string, body: unknown, cookie = '') {
@@ -58,16 +67,43 @@ async function send(path: string, body: unknown, cookie = '') {
   });
 }
 try {
+  const authOnly = runtime(loginBindings);
+  try {
+    const loginWithoutDatabase = await authOnly.dispatchFetch(
+      origin + '/api/login',
+      {
+        method: 'POST',
+        headers: { Origin: origin, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: '012' }),
+      },
+    );
+    assert.equal(loginWithoutDatabase.status, 200);
+  } finally {
+    await authOnly.dispose();
+  }
   assert.equal((await fetch(origin + '/')).status, 200);
   assert.equal((await fetch(origin + '/design-preview')).status, 404);
   assert.equal((await fetch(origin + '/api/state')).status, 401);
+  assert.equal((await send('/api/login', { pin: '999' })).status, 401);
   for (const [pin, role] of [
     ['012', 'ADMIN'],
     ['345', 'FOREMAN'],
   ]) {
     const response = await send('/api/login', { pin });
     assert.equal(response.status, 200, `Worker ${role} login failed`);
-    const state = (await response.json()) as {
+    const loginResult = (await response.json()) as { ok: boolean };
+    assert.equal(loginResult.ok, true);
+    const setCookie = response.headers.get('set-cookie') || '';
+    assert.match(setCookie, /HttpOnly/);
+    assert.match(setCookie, /Secure/);
+    assert.match(setCookie, /SameSite=Strict/);
+    assert.equal(setCookie.includes('Domain='), false);
+    const token = setCookie.split(';')[0];
+    const stateResponse = await fetch(origin + '/api/state', {
+      headers: { Cookie: token },
+    });
+    assert.equal(stateResponse.status, 200);
+    const state = (await stateResponse.json()) as {
       user: { role: string };
       blocks: unknown[];
       packages: unknown[];
@@ -81,12 +117,19 @@ try {
     assert.equal(state.audit, undefined);
     assert.equal(state.inspections, undefined);
     assert.equal(state.users, undefined);
-    const setCookie = response.headers.get('set-cookie') || '';
-    assert.match(setCookie, /HttpOnly/);
-    assert.match(setCookie, /Secure/);
-    assert.match(setCookie, /SameSite=Strict/);
-    assert.equal(setCookie.includes('Domain='), false);
-    const token = setCookie.split(';')[0];
+    const signatureStart = token.lastIndexOf('.') + 1;
+    const modifiedToken =
+      token.slice(0, signatureStart) +
+      (token[signatureStart] === 'a' ? 'b' : 'a') +
+      token.slice(signatureStart + 1);
+    assert.equal(
+      (
+        await fetch(origin + '/api/state', {
+          headers: { Cookie: modifiedToken },
+        })
+      ).status,
+      401,
+    );
     if (role === 'ADMIN') {
       const detailResponse = await fetch(
         origin + '/api/state?view=audit&detail=1',
@@ -131,18 +174,19 @@ try {
     }
     const logout = await send('/api/logout', {}, token);
     assert.equal(logout.status, 200);
+    assert.match(logout.headers.get('set-cookie') || '', /Max-Age=0/);
     await logout.text();
     const expired = await fetch(origin + '/api/state', {
-      headers: { Cookie: token },
+      headers: {},
     });
     assert.equal(
       expired.status,
       401,
-      `Revoked session must fail: ${await expired.text()}`,
+      `Signed-out browser request must fail: ${await expired.text()}`,
     );
   }
   console.log(
-    'Worker smoke test passed: TCP adapter, both logins, host-only secure cookies, role guards, logout and production preview isolation.',
+    'Worker smoke test passed: database-free login, both roles, signed host-only secure cookies, tamper/role guards, logout and production preview isolation.',
   );
 } finally {
   await worker.dispose();

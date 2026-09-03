@@ -1,13 +1,7 @@
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
-import {
-  admin,
-  type Actor,
-  HttpError,
-  lookup,
-  pinHash,
-  publicUser,
-} from './auth';
+import { admin, type Actor, HttpError, publicUser } from './auth';
+import { lookup, pinHash } from './legacy-credentials';
 
 const id = z.string().min(1);
 const name = z.string().trim().min(2).max(80);

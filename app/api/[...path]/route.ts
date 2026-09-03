@@ -23,7 +23,7 @@ async function handler(req: Request) {
       const body = z
         .object({ pin: z.string().max(10) })
         .parse(await req.json());
-      const result = await login(req, body.pin);
+      const result = await login(body.pin);
       return result.error
         ? reply(
             {
@@ -32,11 +32,12 @@ async function handler(req: Request) {
             },
             401,
           )
-        : reply(
-            { ok: true, ...(await getState(result.user, 'dashboard')) },
-            200,
-            { 'Set-Cookie': cookie(result.token) },
-          );
+        : reply({ ok: true }, 200, {
+            'Set-Cookie': cookie(result.token),
+          });
+    }
+    if (path === 'logout' && req.method === 'POST') {
+      return reply({ ok: true }, 200, { 'Set-Cookie': cookie('', 0) });
     }
     const user = await userFor(req);
     if (path === 'state' && req.method === 'GET') {
@@ -49,11 +50,7 @@ async function handler(req: Request) {
     }
     if (req.method === 'POST') {
       const result = await mutate(path, req, user);
-      return reply(
-        result,
-        200,
-        path === 'logout' ? { 'Set-Cookie': cookie('', 0) } : {},
-      );
+      return reply(result);
     }
     throw new HttpError(404, 'Not found.');
   } catch (e) {
@@ -73,7 +70,7 @@ async function handler(req: Request) {
       return reply(
         {
           error:
-            'Project database is not configured yet. Please contact your administrator.',
+            'Project runtime configuration is incomplete. Please contact your administrator.',
         },
         503,
       );
