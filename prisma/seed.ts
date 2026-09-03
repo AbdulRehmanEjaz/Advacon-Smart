@@ -3,30 +3,29 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { hash } from 'bcryptjs';
 import { createHmac } from 'node:crypto';
 import { baseline, packages, zones } from '../lib/domain/baseline';
+import { SeedError, type SeedStage, formatSeedError } from './seed-errors';
+
 export async function seedProject(
   prisma: PrismaClient,
   secret: string,
   adminPin: string,
   foremanPin: string,
 ) {
-  if (
-    secret.length < 32 ||
-    !/^\d{3}$/.test(adminPin) ||
-    !/^\d{3}$/.test(foremanPin) ||
-    adminPin === foremanPin
-  )
-    throw Error('Set a valid secret and distinct three-digit seed PINs.');
-  await prisma.$transaction(
-    async (tx) => {
-      // Also serializes initialization with normal project mutations on reruns.
-      await tx.project.upsert({
-        where: { id: 'tree-project' },
-        create: { id: 'tree-project' },
-        update: {},
-      });
-      await tx.$queryRaw`SELECT id FROM "Project" WHERE id = 'tree-project' FOR UPDATE`;
-      await seedBaseline(tx);
-      const users = [
+  let stage: SeedStage = 'input validation';
+  try {
+    if (
+      secret.length < 32 ||
+      !/^\d{3}$/.test(adminPin) ||
+      !/^\d{3}$/.test(foremanPin) ||
+      adminPin === foremanPin
+    )
+      throw new SeedError(stage, undefined, 'INVALID_INPUT');
+
+    stage = 'account hashing';
+    // bcrypt is deliberately OUTSIDE the transaction/row locks. Only database
+    // work should consume the interactive transaction's timeout budget.
+    const users = await Promise.all(
+      [
         {
           id: 'initial-admin',
           name: 'Project Administrator',
@@ -39,49 +38,83 @@ export async function seedProject(
           role: 'FOREMAN' as const,
           pin: foremanPin,
         },
-      ];
-      // Preflight both PINs before any account update; never overwrite another user.
-      for (const user of users) {
-        const pinLookup = createHmac('sha256', secret)
-          .update(user.pin)
-          .digest('hex');
-        const conflict = await tx.user.findUnique({
-          where: { pinLookup },
+      ].map(async ({ pin, ...user }) => ({
+        ...user,
+        pinHash: await hash(pin, 12),
+        pinLookup: createHmac('sha256', secret).update(pin).digest('hex'),
+      })),
+    );
+
+    stage = 'transaction acquisition';
+    await prisma.$transaction(
+      async (tx) => {
+        stage = 'project creation';
+        // Atomic INSERT ON CONFLICT DO NOTHING works on an empty database and
+        // concurrent initializations. Empty-update upserts expand into many
+        // read/create queries in Prisma 6's query compiler.
+        await tx.project.createMany({
+          data: [{ id: 'tree-project' }],
+          skipDuplicates: true,
+        });
+        stage = 'project lock';
+        await tx.$queryRaw`SELECT id FROM "Project" WHERE id = 'tree-project' FOR UPDATE`;
+        await seedBaseline(tx, (next) => {
+          stage = next;
+        });
+
+        stage = 'initial account locks';
+        // No rows on first initialization is expected, NOT an error. The project
+        // lock serializes creators; existing-user locks also serialize logins.
+        await tx.$queryRaw`SELECT id FROM "User" WHERE id IN ('initial-admin', 'initial-foreman') ORDER BY id FOR UPDATE`;
+        stage = 'initial account PIN uniqueness';
+        const conflicts = await tx.user.findMany({
+          where: { pinLookup: { in: users.map((user) => user.pinLookup) } },
+          select: { id: true, pinLookup: true },
+        });
+        for (const user of users)
+          if (
+            conflicts.some(
+              (other) =>
+                other.pinLookup === user.pinLookup && other.id !== user.id,
+            )
+          )
+            throw new SeedError(stage, undefined, 'PIN_CONFLICT');
+
+        stage = 'initial account lookup';
+        const existing = await tx.user.findMany({
+          where: { id: { in: users.map((user) => user.id) } },
           select: { id: true },
         });
-        if (conflict && conflict.id !== user.id)
-          throw Error(
-            'An initialization PIN is already assigned to another account. No accounts changed.',
-          );
-      }
-      for (const user of users) {
-        await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${user.id} FOR UPDATE`;
-        const existing = await tx.user.findUnique({
-          where: { id: user.id },
-          select: { id: true },
+        for (const { id, ...user } of users) {
+          stage =
+            id === 'initial-admin'
+              ? 'initial administrator upsert'
+              : 'initial supervisor upsert';
+          const values = {
+            ...user,
+            active: true,
+            archivedAt: null,
+            defaultPin: true,
+            failedLoginCount: 0,
+            lockedUntil: null,
+          };
+          await tx.user.upsert({
+            where: { id },
+            create: { id, ...values },
+            update: values,
+            select: { id: true },
+          });
+        }
+        stage = 'initial account session revocation';
+        await tx.session.deleteMany({
+          where: { userId: { in: users.map((user) => user.id) } },
         });
-        const values = {
-          name: user.name,
-          role: user.role,
-          active: true,
-          archivedAt: null,
-          pinHash: await hash(user.pin, 12),
-          pinLookup: createHmac('sha256', secret)
-            .update(user.pin)
-            .digest('hex'),
-          defaultPin: true,
-          failedLoginCount: 0,
-          lockedUntil: null,
-        };
-        await tx.user.upsert({
-          where: { id: user.id },
-          create: { id: user.id, ...values },
-          update: values,
-        });
-        await tx.session.deleteMany({ where: { userId: user.id } });
-        await tx.auditLog.create({
-          data: {
-            action: existing ? 'INITIAL_USER_RESET' : 'USER_SEEDED',
+        stage = 'initial account audit creation';
+        await tx.auditLog.createMany({
+          data: users.map((user) => ({
+            action: existing.some((row) => row.id === user.id)
+              ? 'INITIAL_USER_RESET'
+              : 'USER_SEEDED',
             entityType: 'User',
             entityId: user.id,
             after: {
@@ -90,73 +123,92 @@ export async function seedProject(
               active: true,
               pinReset: true,
             },
-          },
+          })),
         });
-      }
-    },
-    { timeout: 60000 },
-  );
+        stage = 'transaction commit';
+      },
+      { maxWait: 15000, timeout: 60000 },
+    );
+  } catch (error) {
+    // Never attach the original exception: Prisma messages can include query
+    // arguments (including account hashes), SQL parameters or connection URLs.
+    throw error instanceof SeedError ? error : new SeedError(stage, error);
+  }
 }
 
 async function seedBaseline(
   tx: import('@prisma/client').Prisma.TransactionClient,
+  setStage: (stage: SeedStage) => void,
 ) {
-  await tx.project.upsert({
-    where: { id: 'tree-project' },
-    create: { id: 'tree-project' },
-    update: {},
+  // FK-ordered bulk inserts: existing settings/allocations/weights are NEVER
+  // overwritten. This replaces hundreds of remote round trips with five.
+  setStage('project settings');
+  await tx.projectSettings.createMany({
+    data: [{ projectId: 'tree-project', ...baseline }],
+    skipDuplicates: true,
   });
-  await tx.projectSettings.upsert({
-    where: { projectId: 'tree-project' },
-    create: { projectId: 'tree-project', ...baseline },
-    update: {},
+  setStage('zones');
+  await tx.zone.createMany({
+    data: zones.map((zone) => ({
+      id: zone.id,
+      projectId: 'tree-project',
+      capacity: zone.capacity,
+      spacing: zone.spacing,
+    })),
+    skipDuplicates: true,
   });
-  for (const zone of zones) {
-    await tx.zone.upsert({
-      where: { id: zone.id },
-      create: {
-        id: zone.id,
-        capacity: zone.capacity,
-        spacing: zone.spacing,
-      },
-      update: {},
-    });
-    for (let i = 1; i <= zone.count; i++) {
-      const id = zone.id + String(i).padStart(2, '0');
-      await tx.block.upsert({
-        where: { id },
-        create: { id, name: id, zoneId: zone.id },
-        update: {},
-      });
-    }
-  }
-  for (const p of packages) {
-    await tx.workPackage.upsert({
-      where: { id: p.id },
-      create: { id: p.id, name: p.name, weight: p.weight, order: p.order },
-      update: {},
-    });
-    for (const a of p.activities) {
-      const { schedule: _schedule, ...data } = a;
-      await tx.activity.upsert({
-        where: { id: a.id },
-        create: data,
-        update: {},
-      });
-    }
-  }
+  setStage('blocks');
+  await tx.block.createMany({
+    data: zones.flatMap((zone) =>
+      Array.from({ length: zone.count }, (_, index) => {
+        const id = zone.id + String(index + 1).padStart(2, '0');
+        return { id, name: id, zoneId: zone.id };
+      }),
+    ),
+    skipDuplicates: true,
+  });
+  setStage('work packages');
+  await tx.workPackage.createMany({
+    data: packages.map((p) => ({
+      id: p.id,
+      projectId: 'tree-project',
+      name: p.name,
+      weight: p.weight,
+      order: p.order,
+    })),
+    skipDuplicates: true,
+  });
+  setStage('activities');
+  await tx.activity.createMany({
+    data: packages.flatMap((p) =>
+      p.activities.map(({ schedule: _schedule, ...data }) => data),
+    ),
+    skipDuplicates: true,
+  });
 }
 
 // Importing the seed for isolated tests never executes it or contacts a database.
 if (process.argv[1]?.replaceAll('\\', '/').endsWith('/prisma/seed.ts')) {
-  const connectionString =
-    process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL;
-  if (!connectionString || !/^postgres(?:ql)?:\/\//.test(connectionString))
-    throw Error('Set the migration database URL privately.');
-  const prisma = new PrismaClient({
-    adapter: new PrismaPg({ connectionString }),
-  });
+  let prisma: PrismaClient | undefined;
   try {
+    const connectionString =
+      process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL;
+    if (!connectionString || !/^postgres(?:ql)?:\/\//.test(connectionString))
+      throw new SeedError(
+        'database configuration',
+        undefined,
+        'INVALID_DATABASE_CONFIG',
+      );
+    prisma = new PrismaClient({
+      adapter: new PrismaPg({
+        connectionString,
+        max: 1,
+        connectionTimeoutMillis: 10000,
+        idleTimeoutMillis: 5000,
+      }),
+      // Do not enable Prisma query/error logging; only the safe reporter below.
+      log: [],
+    });
     await seedProject(
       prisma,
       process.env.SESSION_SECRET || '',
@@ -166,12 +218,23 @@ if (process.argv[1]?.replaceAll('\\', '/').endsWith('/prisma/seed.ts')) {
     console.log(
       'Initial accounts created/updated. Existing operational progress and baseline settings preserved.',
     );
-  } catch {
+  } catch (error) {
     console.error(
-      'Initialization failed. Verify the migration status, secret and unique seed PINs. No secret values are logged.',
+      formatSeedError(
+        error instanceof SeedError
+          ? error
+          : new SeedError('database configuration', error),
+      ),
     );
     process.exitCode = 1;
   } finally {
-    await prisma.$disconnect();
+    try {
+      await prisma?.$disconnect();
+    } catch (error) {
+      console.error(
+        formatSeedError(new SeedError('database disconnect', error)),
+      );
+      process.exitCode = 1;
+    }
   }
 }
