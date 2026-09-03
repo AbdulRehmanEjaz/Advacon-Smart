@@ -66,26 +66,42 @@ try {
     ['345', 'FOREMAN'],
   ]) {
     const response = await send('/api/login', { pin });
-    assert.equal(
-      response.status,
-      200,
-      `Worker ${role} login: ${await response.text()}`,
-    );
+    assert.equal(response.status, 200, `Worker ${role} login failed`);
+    const state = (await response.json()) as {
+      user: { role: string };
+      blocks: unknown[];
+      packages: unknown[];
+      users?: unknown[];
+      audit?: unknown[];
+      inspections?: unknown[];
+    };
+    assert.equal(state.user.role, role);
+    assert.equal(state.blocks.length, 19);
+    assert.ok(state.packages.length > 0);
+    assert.equal(state.audit, undefined);
+    assert.equal(state.inspections, undefined);
+    assert.equal(state.users, undefined);
     const setCookie = response.headers.get('set-cookie') || '';
     assert.match(setCookie, /HttpOnly/);
     assert.match(setCookie, /Secure/);
     assert.match(setCookie, /SameSite=Strict/);
     assert.equal(setCookie.includes('Domain='), false);
     const token = setCookie.split(';')[0];
-    const stateResponse = await fetch(origin + '/api/state', {
-      headers: { Cookie: token },
-    });
-    assert.equal(stateResponse.status, 200);
-    const state = (await stateResponse.json()) as {
-      user: { role: string };
-      users?: unknown[];
-    };
-    assert.equal(state.user.role, role);
+    if (role === 'ADMIN') {
+      const detailResponse = await fetch(
+        origin + '/api/state?view=audit&detail=1',
+        { headers: { Cookie: token } },
+      );
+      assert.equal(detailResponse.status, 200);
+      const detail = (await detailResponse.json()) as {
+        audit?: unknown[];
+        users?: unknown[];
+        submissions?: unknown[];
+      };
+      assert.ok(detail.audit);
+      assert.ok(detail.users);
+      assert.equal(detail.submissions, undefined);
+    }
     if (role === 'FOREMAN') {
       assert.equal(state.users, undefined);
       assert.equal(

@@ -89,36 +89,40 @@ export async function login(req: Request, pin: string) {
     process.env.TRUST_CLOUDFLARE_IP === 'true'
       ? req.headers.get('cf-connecting-ip') || 'shared'
       : 'shared';
-  const id = await lookup('throttle:' + ip);
+  const [id, candidateLookup, fallbackHash] = await Promise.all([
+    lookup('throttle:' + ip),
+    /^\d{3}$/.test(pin) ? lookup(pin) : Promise.resolve(null),
+    (dummyHash ??= pinHash('invalid-access-marker')),
+  ]);
   const now = new Date();
   return db().$transaction(
     async (tx) => {
-      await tx.authThrottle.upsert({
-        where: { id },
-        create: { id },
-        update: {},
-      });
-      await tx.$queryRaw`SELECT id FROM "AuthThrottle" WHERE id = ${id} FOR UPDATE`;
-      const throttle = await tx.authThrottle.findUniqueOrThrow({
-        where: { id },
-      });
+      await tx.$executeRaw`INSERT INTO "AuthThrottle" (id, "updatedAt") VALUES (${id}, ${now}) ON CONFLICT (id) DO NOTHING`;
+      const [throttle] = await tx.$queryRaw<
+        { failures: number; lockedUntil: Date | null }[]
+      >`SELECT failures, "lockedUntil" FROM "AuthThrottle" WHERE id = ${id} FOR UPDATE`;
       if (throttle.lockedUntil && throttle.lockedUntil > now)
         return { error: true as const };
-      const candidate = /^\d{3}$/.test(pin)
-        ? await tx.user.findUnique({ where: { pinLookup: await lookup(pin) } })
-        : null;
-      // Serialize against PIN resets / deactivation so a stale login cannot
-      // create a session after the administrator revoked access.
-      if (candidate)
-        await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${candidate.id} FOR UPDATE`;
-      const user = candidate
-        ? await tx.user.findUnique({ where: { id: candidate.id } })
-        : null;
-      const matches = await compare(
-        pin,
-        user?.pinHash ??
-          (await (dummyHash ??= pinHash('invalid-access-marker'))),
-      );
+      // Find and lock the account in one round trip. This preserves the race
+      // protection against concurrent PIN resets/deactivation without the old
+      // candidate lookup -> lock -> duplicate lookup sequence.
+      const [user] = candidateLookup
+        ? await tx.$queryRaw<
+            {
+              id: string;
+              name: string;
+              role: 'ADMIN' | 'FOREMAN';
+              pinHash: string;
+              defaultPin: boolean;
+              active: boolean;
+              archivedAt: Date | null;
+              lastLogin: Date | null;
+              createdAt: Date;
+              updatedAt: Date;
+            }[]
+          >`SELECT id, name, role, "pinHash", "defaultPin", active, "archivedAt", "lastLogin", "createdAt", "updatedAt" FROM "User" WHERE "pinLookup" = ${candidateLookup} FOR UPDATE`
+        : [];
+      const matches = await compare(pin, user?.pinHash ?? fallbackHash);
       const valid = user && user.active && !user.archivedAt && matches;
       if (!valid) {
         const failures =
@@ -166,7 +170,21 @@ export async function login(req: Request, pin: string) {
           ipHash: id,
         },
       });
-      return { error: false as const, token };
+      return {
+        error: false as const,
+        token,
+        user: {
+          id: user.id,
+          name: user.name,
+          role: user.role,
+          active: user.active,
+          archivedAt: user.archivedAt,
+          defaultPin: user.defaultPin,
+          lastLogin: now,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
+        },
+      };
     },
     { timeout: 15000 },
   );

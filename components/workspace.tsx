@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   TreePine,
@@ -70,13 +70,43 @@ export function Workspace({
   preview?: boolean;
 }) {
   const [state, setState] = useState<State | undefined>(initialState),
+    [activeView, setActiveView] = useState(view),
     [error, setError] = useState(''),
     [open, setOpen] = useState(false),
     [adding, setAdding] = useState(false),
-    [query, setQuery] = useState('');
+    [query, setQuery] = useState(''),
+    [pageLoading, setPageLoading] = useState(false);
+  const loadedDetails = useRef(
+    new Set(
+      initialState
+        ? [
+            ...(initialState.zones ? ['blocks'] : []),
+            ...(initialState.inspections ? ['quality'] : []),
+            ...(initialState.users ? ['supervisors'] : []),
+            ...(initialState.audit ? ['audit'] : []),
+            ...(['daily', 'approvals', 'reports'].includes(view) ? [view] : []),
+          ]
+        : [],
+    ),
+  );
+  const detailSequence = useRef(0);
+  const detailViews = new Set([
+    'blocks',
+    'quality',
+    'supervisors',
+    'audit',
+    'daily',
+    'approvals',
+    'reports',
+  ]);
   async function refresh() {
     try {
-      const r = await fetch('/api/state', { cache: 'no-store' });
+      const r = await fetch(
+        `/api/state?view=${encodeURIComponent(activeView)}`,
+        {
+          cache: 'no-store',
+        },
+      );
       if (r.status === 401) {
         window.location.assign('/');
         return;
@@ -84,14 +114,88 @@ export function Workspace({
       const d = (await r.json()) as State & { error?: string };
       if (!r.ok) throw Error(d.error);
       setState(d);
+      if (detailViews.has(activeView)) loadedDetails.current.add(activeView);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to load project.');
     }
   }
+  async function loadDetail(nextView: string) {
+    if (!detailViews.has(nextView) || loadedDetails.current.has(nextView))
+      return;
+    const sequence = ++detailSequence.current;
+    setPageLoading(true);
+    try {
+      const r = await fetch(
+        `/api/state?view=${encodeURIComponent(nextView)}&detail=1`,
+        { cache: 'no-store' },
+      );
+      if (r.status === 401) {
+        window.location.assign('/');
+        return;
+      }
+      const detail = (await r.json()) as Partial<State> & { error?: string };
+      if (!r.ok) throw Error(detail.error);
+      setState((current) => (current ? { ...current, ...detail } : current));
+      loadedDetails.current.add(nextView);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unable to load this page.');
+    } finally {
+      if (sequence === detailSequence.current) setPageLoading(false);
+    }
+  }
+  function navigate(event: globalThis.MouseEvent) {
+    const link = (event.target as Element).closest('a');
+    if (
+      !link ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    )
+      return;
+    const url = new URL(link.href);
+    if (url.origin !== window.location.origin) return;
+    const nextView = preview
+      ? url.searchParams.get('view')
+      : url.pathname.match(/^\/workspace\/([^/]+)$/)?.[1];
+    if (!nextView) return;
+    event.preventDefault();
+    detailSequence.current += 1;
+    setPageLoading(false);
+    setOpen(false);
+    setQuery('');
+    setActiveView(nextView);
+    window.history.pushState({}, '', url.pathname + url.search);
+  }
+  // Production callers always inject initial state. The fallback remains in the
+  // render below only for a recoverable integration error, never as normal UX.
   useEffect(() => {
-    // oxlint-disable-next-line react/react-compiler -- Fetch authenticated state after mount, never during render.
-    if (!initialState) void refresh();
-  }, [initialState]);
+    // oxlint-disable-next-line react/react-compiler -- Async page-specific loading is triggered only after navigation.
+    void loadDetail(activeView);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- Detail cache intentionally lives for the workspace lifetime.
+  }, [activeView]);
+  useEffect(() => {
+    const back = () => {
+      const pathView = window.location.pathname
+        .split('/')
+        .filter(Boolean)
+        .at(-1);
+      if (pathView) {
+        detailSequence.current += 1;
+        setPageLoading(false);
+        setActiveView(pathView);
+      }
+    };
+    const click = (event: globalThis.MouseEvent) => navigate(event);
+    window.addEventListener('popstate', back);
+    document.addEventListener('click', click);
+    return () => {
+      window.removeEventListener('popstate', back);
+      document.removeEventListener('click', click);
+    };
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- Navigation handler depends only on the stable preview mode.
+  }, [preview]);
   useEffect(() => {
     const ctx = (
       document as Document & {
@@ -161,13 +265,14 @@ export function Workspace({
       </main>
     );
   const isAdmin = state.user.role === 'ADMIN',
-    allowed = isAdmin || ['dashboard', 'daily'].includes(view),
+    allowed = isAdmin || ['dashboard', 'daily'].includes(activeView),
     pending = state.submissions.filter((s) => s.status === 'WAITING').length;
   const title =
-    !isAdmin && view === 'dashboard'
+    !isAdmin && activeView === 'dashboard'
       ? 'Site Progress'
-      : navigation.flatMap((g) => g.items).find((i) => i[0] === view)?.[1] ||
-        'Page not found';
+      : navigation
+          .flatMap((g) => g.items)
+          .find((i) => i[0] === activeView)?.[1] || 'Page not found';
   const href = (v: string) =>
     preview ? `/design-preview?view=${v}` : `/workspace/${v}`;
   return (
@@ -184,8 +289,8 @@ export function Workspace({
               .filter((i) => isAdmin || ['dashboard', 'daily'].includes(i[0]))
               .map(([id, label, Icon]) => (
                 <a
-                  className={`nav-link ${view === id ? 'active' : ''}`}
-                  aria-current={view === id ? 'page' : undefined}
+                  className={`nav-link ${activeView === id ? 'active' : ''}`}
+                  aria-current={activeView === id ? 'page' : undefined}
                   key={id}
                   href={href(id)}
                 >
@@ -279,7 +384,7 @@ export function Workspace({
             <div>
               <h1>{title}</h1>
               <p>
-                {view === 'dashboard'
+                {activeView === 'dashboard'
                   ? 'Monitor project progress, productivity and site readiness.'
                   : 'TREE TRANSLOCATION PROJECT / ' + title.toUpperCase()}
               </p>
@@ -320,7 +425,9 @@ export function Workspace({
               <button onClick={() => setError('')}>Dismiss</button>
             </div>
           )}
-          {!allowed ? (
+          {pageLoading ? (
+            <output className="card shell-loading">Loading this page…</output>
+          ) : !allowed ? (
             <div className="card empty-note">
               This page requires administrator access.
             </div>
@@ -332,12 +439,12 @@ export function Workspace({
               refresh={refresh}
               preview={preview}
             />
-          ) : view === 'dashboard' ? (
+          ) : activeView === 'dashboard' ? (
             <Dashboard state={state} href={href} />
           ) : (
             <DataPages
               state={state}
-              view={view}
+              view={activeView}
               query=""
               refresh={refresh}
               preview={preview}

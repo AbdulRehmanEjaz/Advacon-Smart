@@ -6,7 +6,7 @@ import {
   sameOrigin,
   userFor,
 } from '@/lib/server/auth';
-import { getState, mutate } from '@/lib/server/service';
+import { getState, getStateDetail, mutate } from '@/lib/server/service';
 import { withDatabase } from '@/lib/server/db';
 export const dynamic = 'force-dynamic';
 const reply = (data: unknown, status = 200, headers = {}) =>
@@ -16,7 +16,8 @@ const reply = (data: unknown, status = 200, headers = {}) =>
   });
 async function handler(req: Request) {
   try {
-    const path = new URL(req.url).pathname.replace(/^\/api\//, '');
+    const url = new URL(req.url);
+    const path = url.pathname.replace(/^\/api\//, '');
     if (req.method === 'POST') sameOrigin(req);
     if (path === 'login' && req.method === 'POST') {
       const body = z
@@ -31,11 +32,21 @@ async function handler(req: Request) {
             },
             401,
           )
-        : reply({ ok: true }, 200, { 'Set-Cookie': cookie(result.token) });
+        : reply(
+            { ok: true, ...(await getState(result.user, 'dashboard')) },
+            200,
+            { 'Set-Cookie': cookie(result.token) },
+          );
     }
     const user = await userFor(req);
-    if (path === 'state' && req.method === 'GET')
-      return reply(await getState(user));
+    if (path === 'state' && req.method === 'GET') {
+      const view = url.searchParams.get('view') || 'dashboard';
+      return reply(
+        url.searchParams.get('detail') === '1'
+          ? await getStateDetail(user, view)
+          : await getState(user, view),
+      );
+    }
     if (req.method === 'POST') {
       const result = await mutate(path, req, user);
       return reply(

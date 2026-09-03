@@ -59,76 +59,156 @@ async function records(tx: Tx) {
     })),
   };
 }
-export async function getState(user: Actor) {
-  if (user.role === 'FOREMAN') {
-    // A coherent snapshot on one connection, including the user's history and
-    // the block/activity selectors needed to enter a new submission.
-    return db().$transaction(
-      async (tx) => {
-        const [submissions, blocks, packages] = await Promise.all([
-          tx.dailySubmission.findMany({
-            where: { supervisorId: user.id },
-            include: submissionInclude,
-            orderBy: { createdAt: 'desc' },
-          }),
-          tx.block.findMany({ select: { id: true, name: true, zoneId: true } }),
-          tx.workPackage.findMany({
-            orderBy: { order: 'asc' },
-            include: { activities: true },
-          }),
-        ]);
-        return { user, submissions, blocks, packages };
+const dashboardSubmission = {
+  id: true,
+  supervisorId: true,
+  supervisor: { select: { name: true } },
+  status: true,
+  workDate: true,
+  createdAt: true,
+  blockId: true,
+  packageId: true,
+  version: true,
+  items: {
+    select: {
+      id: true,
+      activityId: true,
+      quantity: true,
+      adjustments: { select: { quantity: true, createdAt: true } },
+    },
+  },
+  approvals: { select: { decision: true, createdAt: true } },
+} as const;
+
+async function dashboardRecords(tx: Tx, supervisorId?: string) {
+  const [settings, packages, submissions, blocks] = await Promise.all([
+    tx.projectSettings.findUniqueOrThrow({
+      where: { projectId: 'tree-project' },
+    }),
+    tx.workPackage.findMany({
+      orderBy: { order: 'asc' },
+      include: { activities: { include: { schedule: true } } },
+    }),
+    tx.dailySubmission.findMany({
+      where: supervisorId ? { supervisorId } : undefined,
+      select: dashboardSubmission,
+      orderBy: { createdAt: 'desc' },
+    }),
+    tx.block.findMany({ orderBy: { id: 'asc' } }),
+  ]);
+  return {
+    settings: serial<Settings>(settings),
+    packages: serial<PackageDefinition[]>(packages),
+    submissions: serial<Submission[]>(submissions).map((submission) => ({
+      ...submission,
+      batchNumber: null,
+      remarks: '',
+      photos: [],
+      approvals: submission.approvals.map((approval) => ({
+        ...approval,
+        comment: '',
+      })),
+    })),
+    blocks: serial<Block[]>(blocks).map((block) => ({
+      ...block,
+      irrigationTarget:
+        block.irrigationTarget == null ? null : Number(block.irrigationTarget),
+    })),
+  };
+}
+
+type DetailView =
+  | 'blocks'
+  | 'quality'
+  | 'supervisors'
+  | 'audit'
+  | 'daily'
+  | 'approvals'
+  | 'reports';
+
+async function supervisorRecords(tx: Tx) {
+  const [userRows, auditActors, auditSubjects] = await Promise.all([
+    tx.user.findMany({
+      select: {
+        ...publicUser,
+        _count: {
+          select: { submissions: true, approvals: true, adjustments: true },
+        },
       },
-      { isolationLevel: 'RepeatableRead', timeout: 15000 },
-    );
+      orderBy: { name: 'asc' },
+    }),
+    tx.auditLog.groupBy({
+      by: ['userId'],
+      where: { userId: { not: null } },
+    }),
+    tx.auditLog.groupBy({
+      by: ['entityId'],
+      where: { entityType: 'User', entityId: { not: null } },
+    }),
+  ]);
+  const historyIds = new Set([
+    ...auditActors.map((a) => a.userId),
+    ...auditSubjects.map((a) => a.entityId),
+  ]);
+  return userRows.map(({ _count, ...user }) => ({
+    ...user,
+    hasHistory:
+      historyIds.has(user.id) ||
+      Object.values(_count).some((count) => count > 0),
+  }));
+}
+
+async function detailRecords(tx: Tx, view: string | undefined, user: Actor) {
+  if (['daily', 'approvals', 'reports'].includes(view || ''))
+    return {
+      submissions: await tx.dailySubmission.findMany({
+        where: user.role === 'FOREMAN' ? { supervisorId: user.id } : undefined,
+        include: submissionInclude,
+        orderBy: { createdAt: 'desc' },
+      }),
+    };
+  if (view === 'blocks')
+    return { zones: await tx.zone.findMany({ orderBy: { id: 'asc' } }) };
+  if (view === 'quality')
+    return {
+      inspections: await tx.inspection.findMany({
+        include: { observations: true },
+        orderBy: { date: 'desc' },
+      }),
+    };
+  if (view === 'supervisors') return { users: await supervisorRecords(tx) };
+  if (view === 'audit') {
+    const [audit, users] = await Promise.all([
+      tx.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 500 }),
+      tx.user.findMany({ select: publicUser, orderBy: { name: 'asc' } }),
+    ]);
+    return { audit, users };
   }
+  return {};
+}
+
+export async function getState(user: Actor, view?: string) {
   return db().$transaction(
     async (tx) => {
-      const core = await records(tx);
-      const [userRows, zones, inspections, audit, auditActors, auditSubjects] =
-        await Promise.all([
-          tx.user.findMany({
-            select: {
-              ...publicUser,
-              _count: {
-                select: {
-                  submissions: true,
-                  approvals: true,
-                  adjustments: true,
-                },
-              },
-            },
-            orderBy: { name: 'asc' },
-          }),
-          tx.zone.findMany({ orderBy: { id: 'asc' } }),
-          tx.inspection.findMany({
-            include: { observations: true },
-            orderBy: { date: 'desc' },
-          }),
-          tx.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 500 }),
-          tx.auditLog.groupBy({
-            by: ['userId'],
-            where: { userId: { not: null } },
-          }),
-          tx.auditLog.groupBy({
-            by: ['entityId'],
-            where: { entityType: 'User', entityId: { not: null } },
-          }),
-        ]);
-      const historyIds = new Set([
-        ...auditActors.map((a) => a.userId),
-        ...auditSubjects.map((a) => a.entityId),
-      ]);
-      const users = userRows.map(({ _count, ...u }) => ({
-        ...u,
-        hasHistory:
-          historyIds.has(u.id) ||
-          Object.values(_count).some((count) => count > 0),
-      }));
-      return { ...core, user, users, zones, inspections, audit };
+      const core = await dashboardRecords(
+        tx,
+        user.role === 'FOREMAN' ? user.id : undefined,
+      );
+      return { ...core, user, ...(await detailRecords(tx, view, user)) };
     },
     { isolationLevel: 'RepeatableRead', timeout: 15000 },
   );
+}
+
+export async function getStateDetail(user: Actor, view: string) {
+  if (
+    (user.role !== 'ADMIN' && view !== 'daily') ||
+    !(['blocks', 'quality', 'supervisors', 'audit'] as DetailView[]).includes(
+      view as DetailView,
+    )
+  )
+    return {};
+  return detailRecords(db(), view, user);
 }
 async function audit(
   tx: Tx,
