@@ -1,8 +1,5 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
 # dependencies
 /node_modules
-/.pnpm-store/
 /.pnp
 .pnp.*
 .yarn/*
@@ -18,7 +15,6 @@
 /.next/
 /.vinext/
 /out/
-*.tsbuildinfo
 
 # misc
 .DS_Store
@@ -30,14 +26,16 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# local environment
 .env*
+!.env.example
+*.tsbuildinfo
+.dev.vars*
 
-# vercel
+# deployment and generated files
 .vercel
-
+next-env.d.ts
 /dist/
-/.wrangler/
 /.wrangler/
 /outputs/
 /work/
