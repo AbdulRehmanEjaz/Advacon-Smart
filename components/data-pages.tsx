@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge, Kpi } from './dashboard';
 import { Editor, type Field, Modal, ProgressForm } from './progress-form';
+import { Supervisors } from './supervisors';
 import {
   approvedTotals,
   progress,
@@ -22,14 +23,7 @@ import {
   targetFor,
   type Submission,
 } from '@/lib/domain/calculations';
-import {
-  type State,
-  type User,
-  number,
-  today,
-  post,
-  uploadPhoto,
-} from '@/lib/types';
+import { type State, number, today, post, uploadPhoto } from '@/lib/types';
 type Props = {
   state: State;
   view: string;
@@ -58,26 +52,6 @@ export function DataPages(props: Props) {
   const totals = approvedTotals(state.submissions);
   const admin = state.user.role === 'ADMIN';
   const pkg = state.packages.find((p) => p.id === view);
-  function supervisor(u?: User) {
-    setEdit({
-      title: u ? 'Edit supervisor' : 'Add supervisor',
-      description:
-        'PINs are never displayed. Setting a new PIN signs this user out of all sessions.',
-      path: 'supervisor',
-      initial: { id: u?.id, name: u?.name || '', active: u?.active ?? true },
-      fields: [
-        { key: 'name', label: 'Full name', required: true },
-        {
-          key: 'pin',
-          label: u ? 'New PIN (leave blank to keep current)' : 'Access PIN',
-          type: 'password',
-          required: !u,
-        },
-        { key: 'active', label: 'Active account', type: 'checkbox' },
-      ],
-      transform: (v) => ({ ...v, pin: v.pin || undefined }),
-    });
-  }
   let content;
   if (['approvals', 'daily', 'reports', 'search'].includes(view))
     content = <Submissions {...props} />;
@@ -311,67 +285,7 @@ export function DataPages(props: Props) {
       </>
     );
   } else if (view === 'supervisors')
-    content = (
-      <section className="card">
-        <div className="card-heading">
-          <div>
-            <h2 className="card-title">Project Team</h2>
-            <p className="card-subtitle">
-              Manage site access and supervisor accounts
-            </p>
-          </div>
-          <Button
-            className="primary"
-            disabled={preview}
-            onClick={() => supervisor()}
-          >
-            <Plus size={14} />
-            Add Supervisor
-          </Button>
-        </div>
-        <table className="responsive-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Role</th>
-              <th>Status</th>
-              <th>Last login</th>
-              <th>Access</th>
-            </tr>
-          </thead>
-          <tbody>
-            {state.users?.map((u) => (
-              <tr key={u.id}>
-                <td data-label="Name">{u.name}</td>
-                <td data-label="Role">{u.role}</td>
-                <td data-label="Status">
-                  <Badge status={u.active ? 'APPROVED' : 'HOLD'} />
-                </td>
-                <td data-label="Last login">
-                  {u.lastLogin
-                    ? new Date(u.lastLogin).toLocaleDateString()
-                    : 'Not yet'}
-                </td>
-                <td data-label="Access">
-                  <button
-                    disabled={preview}
-                    onClick={() => supervisor(u)}
-                    className="text-button"
-                  >
-                    Edit / reset PIN
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!state.users?.length && (
-          <div className="empty-note">
-            No team accounts in this design preview.
-          </div>
-        )}
-      </section>
-    );
+    content = <Supervisors state={state} refresh={refresh} preview={preview} />;
   else if (view === 'schedule')
     content = (
       <section className="card">

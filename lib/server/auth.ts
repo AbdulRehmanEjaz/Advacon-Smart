@@ -41,11 +41,16 @@ export const publicUser = {
   name: true,
   role: true,
   active: true,
+  archivedAt: true,
   defaultPin: true,
   lastLogin: true,
   createdAt: true,
+  updatedAt: true,
 } as const;
-export async function userFor(req: Request) {
+export async function userFor(
+  req: Request,
+  source?: Pick<ReturnType<typeof db>, 'session'>,
+) {
   const token = req.headers
     .get('cookie')
     ?.split(';')
@@ -53,11 +58,16 @@ export async function userFor(req: Request) {
     .find((s) => s.startsWith(COOKIE + '='))
     ?.slice(COOKIE.length + 1);
   if (!token) throw new HttpError(401, 'Please sign in to continue.');
-  const session = await db().session.findUnique({
+  const session = await (source ?? db()).session.findUnique({
     where: { id: await digest(token) },
     include: { user: { select: publicUser } },
   });
-  if (!session || session.expiresAt < new Date() || !session.user.active)
+  if (
+    !session ||
+    session.expiresAt <= new Date() ||
+    !session.user.active ||
+    session.user.archivedAt
+  )
     throw new HttpError(401, 'Your session has expired. Please sign in again.');
   return session.user;
 }
@@ -94,15 +104,22 @@ export async function login(req: Request, pin: string) {
       });
       if (throttle.lockedUntil && throttle.lockedUntil > now)
         return { error: true as const };
-      const user = /^\d{3}$/.test(pin)
+      const candidate = /^\d{3}$/.test(pin)
         ? await tx.user.findUnique({ where: { pinLookup: await lookup(pin) } })
+        : null;
+      // Serialize against PIN resets / deactivation so a stale login cannot
+      // create a session after the administrator revoked access.
+      if (candidate)
+        await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${candidate.id} FOR UPDATE`;
+      const user = candidate
+        ? await tx.user.findUnique({ where: { id: candidate.id } })
         : null;
       const matches = await compare(
         pin,
         user?.pinHash ??
           (await (dummyHash ??= pinHash('invalid-access-marker'))),
       );
-      const valid = user && user.active && matches;
+      const valid = user && user.active && !user.archivedAt && matches;
       if (!valid) {
         const failures =
           throttle.lockedUntil && throttle.lockedUntil <= now

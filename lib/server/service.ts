@@ -5,11 +5,10 @@ import {
   admin,
   type Actor,
   HttpError,
-  lookup,
-  pinHash,
   publicUser,
   COOKIE,
   digest,
+  userFor,
 } from './auth';
 import {
   approvedTotals,
@@ -22,6 +21,7 @@ import {
 } from '../domain/calculations';
 import type { PackageDefinition, Settings } from '../domain/baseline';
 import { assertReviewable } from '../domain/workflow';
+import { manageSupervisor } from './supervisors';
 type Tx = Omit<
   ReturnType<typeof db>,
   '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
@@ -61,32 +61,70 @@ async function records(tx: Tx) {
 }
 export async function getState(user: Actor) {
   if (user.role === 'FOREMAN') {
-    const [submissions, blocks, packages] = await Promise.all([
-      db().dailySubmission.findMany({
-        where: { supervisorId: user.id },
-        include: submissionInclude,
-        orderBy: { createdAt: 'desc' },
-      }),
-      db().block.findMany({ select: { id: true, name: true, zoneId: true } }),
-      db().workPackage.findMany({
-        orderBy: { order: 'asc' },
-        include: { activities: true },
-      }),
-    ]);
-    return { user, submissions, blocks, packages };
+    // A coherent snapshot on one connection, including the user's history and
+    // the block/activity selectors needed to enter a new submission.
+    return db().$transaction(
+      async (tx) => {
+        const [submissions, blocks, packages] = await Promise.all([
+          tx.dailySubmission.findMany({
+            where: { supervisorId: user.id },
+            include: submissionInclude,
+            orderBy: { createdAt: 'desc' },
+          }),
+          tx.block.findMany({ select: { id: true, name: true, zoneId: true } }),
+          tx.workPackage.findMany({
+            orderBy: { order: 'asc' },
+            include: { activities: true },
+          }),
+        ]);
+        return { user, submissions, blocks, packages };
+      },
+      { isolationLevel: 'RepeatableRead', timeout: 15000 },
+    );
   }
   return db().$transaction(
     async (tx) => {
       const core = await records(tx);
-      const [users, zones, inspections, audit] = await Promise.all([
-        tx.user.findMany({ select: publicUser, orderBy: { name: 'asc' } }),
-        tx.zone.findMany({ orderBy: { id: 'asc' } }),
-        tx.inspection.findMany({
-          include: { observations: true },
-          orderBy: { date: 'desc' },
-        }),
-        tx.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 500 }),
+      const [userRows, zones, inspections, audit, auditActors, auditSubjects] =
+        await Promise.all([
+          tx.user.findMany({
+            select: {
+              ...publicUser,
+              _count: {
+                select: {
+                  submissions: true,
+                  approvals: true,
+                  adjustments: true,
+                },
+              },
+            },
+            orderBy: { name: 'asc' },
+          }),
+          tx.zone.findMany({ orderBy: { id: 'asc' } }),
+          tx.inspection.findMany({
+            include: { observations: true },
+            orderBy: { date: 'desc' },
+          }),
+          tx.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 500 }),
+          tx.auditLog.groupBy({
+            by: ['userId'],
+            where: { userId: { not: null } },
+          }),
+          tx.auditLog.groupBy({
+            by: ['entityId'],
+            where: { entityType: 'User', entityId: { not: null } },
+          }),
+        ]);
+      const historyIds = new Set([
+        ...auditActors.map((a) => a.userId),
+        ...auditSubjects.map((a) => a.entityId),
       ]);
+      const users = userRows.map(({ _count, ...u }) => ({
+        ...u,
+        hasHistory:
+          historyIds.has(u.id) ||
+          Object.values(_count).some((count) => count > 0),
+      }));
       return { ...core, user, users, zones, inspections, audit };
     },
     { isolationLevel: 'RepeatableRead', timeout: 15000 },
@@ -241,11 +279,16 @@ export async function mutate(path: string, req: Request, user: Actor) {
         where: { id: user.id },
         select: publicUser,
       });
-      if (!fresh.active || fresh.role !== user.role)
+      if (!fresh.active || fresh.archivedAt || fresh.role !== user.role)
         throw new HttpError(
           403,
           'Your access has changed. Please sign in again.',
         );
+      // A request waiting behind an account reset must not keep using a
+      // session revoked while it waited for the project lock.
+      const sessionUser = await userFor(req, tx);
+      if (sessionUser.id !== fresh.id)
+        throw new HttpError(403, 'Account mismatch.');
       if (path === 'submission') {
         const data = submissionSchema.parse(body);
         requireThat(
@@ -556,71 +599,7 @@ export async function mutate(path: string, req: Request, user: Actor) {
         return { id: saved.id };
       }
       if (path === 'supervisor') {
-        const data = z
-          .object({
-            id: z.string().optional(),
-            name: z.string().trim().min(2).max(80),
-            active: z.boolean().default(true),
-            pin: z
-              .string()
-              .regex(/^\d{3}$/)
-              .optional(),
-          })
-          .parse(body);
-        const before = data.id
-          ? await tx.user.findUniqueOrThrow({
-              where: { id: data.id },
-              select: publicUser,
-            })
-          : null;
-        requireThat(
-          !(before?.id === user.id && !data.active),
-          'You cannot deactivate your own account.',
-        );
-        requireThat(
-          data.id || data.pin,
-          'A PIN is required for a new supervisor.',
-        );
-        const secret = data.pin
-          ? {
-              pinHash: await pinHash(data.pin),
-              pinLookup: await lookup(data.pin),
-              defaultPin: false,
-            }
-          : {};
-        const saved = data.id
-          ? await tx.user.update({
-              where: { id: data.id },
-              data: { name: data.name, active: data.active, ...secret },
-              select: publicUser,
-            })
-          : await tx.user.create({
-              data: {
-                name: data.name,
-                role: 'FOREMAN',
-                active: data.active,
-                pinHash: secret.pinHash!,
-                pinLookup: secret.pinLookup!,
-                defaultPin: false,
-              },
-              select: publicUser,
-            });
-        if (data.pin || !data.active)
-          await tx.session.deleteMany({ where: { userId: saved.id } });
-        await audit(
-          tx,
-          user,
-          data.pin ? 'USER_PIN_RESET' : 'USER_UPDATED',
-          'User',
-          saved.id,
-          before,
-          {
-            name: saved.name,
-            active: saved.active,
-            pinReset: Boolean(data.pin),
-          },
-        );
-        return { id: saved.id };
+        return manageSupervisor(tx, fresh, body);
       }
       if (path === 'block') {
         const data = z

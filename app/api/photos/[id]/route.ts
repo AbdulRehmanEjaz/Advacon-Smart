@@ -1,6 +1,6 @@
 import { userFor, HttpError } from '@/lib/server/auth';
-import { db } from '@/lib/server/db';
-export async function GET(
+import { db, withDatabase } from '@/lib/server/db';
+async function handler(
   req: Request,
   context: { params: Promise<{ id: string }> },
 ) {
@@ -31,3 +31,7 @@ export async function GET(
     );
   }
 }
+export const GET = (
+  req: Request,
+  context: { params: Promise<{ id: string }> },
+) => withDatabase(() => handler(req, context));

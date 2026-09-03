@@ -7,6 +7,7 @@ import {
   userFor,
 } from '@/lib/server/auth';
 import { getState, mutate } from '@/lib/server/service';
+import { withDatabase } from '@/lib/server/db';
 export const dynamic = 'force-dynamic';
 const reply = (data: unknown, status = 200, headers = {}) =>
   Response.json(data, {
@@ -83,5 +84,5 @@ async function handler(req: Request) {
     );
   }
 }
-export const GET = handler;
-export const POST = handler;
+export const GET = (req: Request) => withDatabase(() => handler(req));
+export const POST = GET;

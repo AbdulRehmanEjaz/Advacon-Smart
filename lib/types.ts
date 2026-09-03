@@ -5,9 +5,12 @@ export type User = {
   name: string;
   role: 'ADMIN' | 'FOREMAN';
   active: boolean;
+  archivedAt: string | null;
+  hasHistory?: boolean;
   defaultPin: boolean;
   lastLogin: string | null;
   createdAt: string;
+  updatedAt: string;
 };
 export type Inspection = {
   id: string;
@@ -53,7 +56,12 @@ export async function post(path: string, body: unknown) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  const data = (await r.json()) as { id: string; ok?: boolean; error?: string };
+  const data = (await r.json()) as {
+    id: string;
+    ok?: boolean;
+    error?: string;
+    outcome?: 'saved' | 'archived' | 'deleted';
+  };
   if (!r.ok) throw Error(data.error || 'Request failed.');
   return data;
 }

@@ -8,7 +8,7 @@ Implemented: green responsive dashboard and PIN entry; server-side PIN/session a
 
 The local design preview is **not an authenticated application or a live database**. `/design-preview` is development-only and uses an explicitly labelled empty baseline. Production returns 404 for this route. No progress or fake operational records are seeded.
 
-**Deployment blocker:** supply a PostgreSQL database with an HTTPS Prisma Accelerate connection, configure the environment, migrate/seed, then verify the actual PIN → submission → approval → KPI flow. No remote database has been provisioned or connected, and no GitHub push/deployment has been performed. User confirmation is required before pushing.
+**Production initialization:** the owner has configured Prisma Postgres and the live Cloudflare Worker secrets. This checkout does not have access to those secrets. Run the one-time `npm run db:setup` command below before using production login. A successful build does not initialize a database.
 
 The entire original definition of done is not yet verified. Quality-specific document/photo attachments (separate from daily-submission photos), a full set of dedicated executive/productivity report layouts, and exhaustive populated-state browser/end-to-end tests remain follow-up work. Do not call this production-ready until those requirements and the live database test pass.
 
@@ -16,7 +16,7 @@ The entire original definition of done is not yet verified. Quality-specific doc
 
 - TypeScript + React, Next-compatible App Router through **Vinext**, Vite, Cloudflare Workers output. This is not a stock Next.js Node deployment: the Sites scaffold uses the Worker-compatible Vinext runtime.
 - Tailwind theme with customized shadcn/Base UI button, input and dialog primitives; Lucide icons; Recharts.
-- PostgreSQL + Prisma 6. Runtime uses Prisma Accelerate over HTTPS, not raw TCP. A direct PostgreSQL URL is used only for migrations and seed.
+- PostgreSQL + Prisma 6.19, JavaScript query compiler (`engineType = "client"`), `@prisma/adapter-pg` and `pg`. The Worker uses the normal pooled `postgres://` URL and `nodejs_compat`. No Accelerate. Each request owns its client/pool through AsyncLocalStorage and disconnects in `finally`; sockets are never reused across Worker requests.
 - Zod input validation, bcrypt cost 12, HMAC PIN lookup, random opaque database-backed sessions.
 - Normalized `DailySubmissionItem` ledger plus immutable `Adjustment` records. Package-specific progress is derived rather than duplicated into separate progress tables.
 
@@ -30,7 +30,7 @@ Use Node.js 22.13+ and npm. Copy `.env.example` to `.env` and configure it local
 
 | Variable              | Purpose                                                                                                  |
 | --------------------- | -------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`        | Prisma Accelerate HTTPS connection (`prisma://…` or `prisma+postgres://…`) for runtime PostgreSQL access |
+| `DATABASE_URL`        | Normal pooled Prisma Postgres connection (`postgres://…` or `postgresql://…`) for Worker runtime |
 | `DIRECT_DATABASE_URL` | Direct PostgreSQL connection for migrations/seed                                                         |
 | `SESSION_SECRET`      | Cryptographically random secret, at least 32 characters; also protects PIN lookup                        |
 | `INITIAL_ADMIN_PIN`   | Seed-only initial administrator PIN from the approved brief                                              |
@@ -38,18 +38,32 @@ Use Node.js 22.13+ and npm. Copy `.env.example` to `.env` and configure it local
 | `TRUST_CLOUDFLARE_IP` | `true` only behind Cloudflare where the platform overwrites the IP header; local default `false`         |
 | `PUBLIC_ORIGIN`       | Verified HTTPS origin with no trailing slash, for absolute Open Graph / X image URLs                     |
 
-Generate a secret with `node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"` and save it directly to your private environment settings. Rotating this secret requires resetting account PIN lookups with the same new secret; it is not a casual deployment setting.
+Use the **same existing SESSION_SECRET as the live Worker** when seeding. Do not generate a different local value or rotate it automatically: PIN lookup uses HMAC with this secret, so a mismatch makes every seeded PIN fail. Keep a private copy in your password manager. Never paste it in chat.
 
 ## Setup and commands
 
 ```sh
 npm install
-npm run db:migrate
-npm run db:seed
+npm run db:setup
 npm run dev -- --host 127.0.0.1 --port 3000
 ```
 
-Migrations create the schema, checks and immutable-history triggers. Seed is idempotent: it does not overwrite existing accounts, PINs, quantities, weights or baseline settings. It creates the project, four zones, nineteen blocks, activities and two initial accounts. **Individual block capacities, row allocations and pipeline allocations remain null** until entered from approved drawings. Start/finish dates are not invented. Existing database users must not have permission to disable triggers in normal application operation.
+### One-time production initialization (local terminal, not the Cloudflare build field)
+
+In a terminal in this repository folder, after `npm install`, run **`npm run db:setup`**. It prompts for hidden input and keeps values only in memory:
+
+1. Prisma Postgres **direct** URL from Prisma Console → database → Connect (not the pooled URL).
+2. The exact existing production `SESSION_SECRET`, from your private saved copy.
+3. Your requested initial administrator PIN (including its leading zero).
+4. Your requested initial supervisor PIN.
+
+The command applies all committed migrations, generates Prisma Client and seeds the baseline and initial accounts. No public migration endpoint is created. The Worker cannot export its configured secret back to this terminal; if you no longer have a private copy, stop and arrange a coordinated secret/PIN reset rather than guessing a new secret.
+
+The direct URL is migration-time only. Prisma recommends direct connections for migrations/admin tools because pooled connections use transaction pooling and do not preserve session continuity ([Prisma connection guidance](https://www.prisma.io/docs/postgres/database/connecting-to-your-database)). It is **not required in the live Worker**. The CLI wrapper substitutes it for `DATABASE_URL` only in its child processes; the runtime pooled URL is unchanged. Advanced users can supply the same inputs in an ignored `.env` or private process environment instead of the prompts.
+
+Migrations create the schema, checks and immutable-history triggers. Baseline seed is idempotent: it does not overwrite operational quantities, weights, schedules or baseline settings. It creates four zones, nineteen blocks and activities. **Individual block capacities, row allocations and pipeline allocations remain null** until entered from approved drawings.
+
+**Rerunning setup/seed explicitly resets the two initial accounts** (`initial-admin` and `initial-foreman`), including their names, roles, PIN hashes/lookups and active status, and revokes their sessions. It uses bcrypt cost 12 and HMAC, never plaintext PINs. Other users and all submissions, approvals, corrections and audit history are preserved. PIN collisions with other accounts fail the seed transaction. For future schema upgrades use **`npm run db:migrate`**, not setup, to avoid resetting accounts. Do not disable database integrity triggers.
 
 Sign in at `http://localhost:3000/`. Enter initial PINs supplied privately through the seed variables. There are no role selectors, saved PINs, role hints or localStorage login shortcuts. Admin should immediately replace initial PINs under Supervisors. The app warns if the default administrator PIN is still active.
 
@@ -58,25 +72,34 @@ npm test
 npm run lint
 npm run typecheck
 npm run build
+npm run test:worker
 npm run start -- --port 3001
 ```
 
 `npm test` uses a disposable in-memory PGlite/PostgreSQL engine for SQL migration/integrity tests and never connects to the configured live database. On this Windows sandbox, Node's account lookup required running the test command outside the restricted sandbox; the normal local command is unchanged.
 
-The build regenerates the edge Prisma client, checks TypeScript and produces `dist/server/index.js`, `dist/server/wrangler.json` and `dist/client/`. Seed regenerates the native client for the direct PostgreSQL connection. Package installers that require explicit dependency-script consent must allow Prisma's generation tools and the official esbuild/workerd binary installers.
+The build regenerates the Rust-free Prisma client, checks TypeScript and produces `dist/server/index.js`, `dist/server/wrangler.json` and `dist/client/`. `--no-engine` is intentionally not used: the JavaScript query compiler is needed for the PostgreSQL adapter. Package installers that require explicit dependency-script consent must allow Prisma's generation tools and the official esbuild/workerd binary installers.
 
 ## Deployment
 
 This is a server-backed application, **not a static Cloudflare Pages export**. Do not deploy just `dist/client` or point Wrangler at `src/index.ts`.
 
-1. Configure PostgreSQL/Accelerate and apply migrations with the direct URL.
-2. Seed the initial accounts from private variables. Remove seed-only PIN variables from the hosted runtime afterward.
+1. Run the one-time local `npm run db:setup` command against Prisma Postgres.
+2. Keep seed-only PINs and the direct connection URL out of the permanent Worker environment.
 3. Configure `DATABASE_URL`, `SESSION_SECRET`, `TRUST_CLOUDFLARE_IP=true` and `PUBLIC_ORIGIN` as hosting secrets/environment values. Do not put secrets in Wrangler `vars` or Git.
 4. Build with `npm run build`.
-5. For a user-managed Cloudflare Worker, deploy the generated configuration: `npx wrangler deploy --config dist/server/wrangler.json`. For Sites-managed hosting, use the Sites save/deploy flow and its runtime environment controls. Do not use a static Pages output-directory configuration for this application.
+5. The existing GitHub → Cloudflare Workers integration deploys `main` using `npx wrangler deploy --config dist/server/wrangler.json`. Source `vite.config.ts` preserves `nodejs_compat` and the compatibility date in generated configuration. Do not use a static Pages output-directory configuration for this application.
 6. Verify authentication, cookie flags, data persistence, every role restriction and the workflow below on the actual hosting target before operational use.
 
-Cloudflare resources, billing and PostgreSQL/Accelerate accounts must be configured by the owner. bcrypt cost 12 and interactive transactions need a hosting CPU budget / database transaction limits that support them; test on the intended plan before launch.
+Production origin: `https://swiftops.web.id`. Cookies are host-only (no Domain attribute), HttpOnly, Secure in production, SameSite=Strict. No localhost is hardcoded into cookie scope. Cloudflare resources, billing and Prisma Postgres credentials remain owner-managed. bcrypt cost 12 and interactive transactions need a hosting CPU budget / database transaction limits that support them; test on the intended plan before launch. See [Prisma's Cloudflare guide](https://docs.prisma.io/docs/guides/deployment/cloudflare-workers) for adapter / Node compatibility guidance.
+
+## Supervisor management
+
+Admin → Supervisors supports add, rename, PIN reset with confirmation, deactivate/reactivate, deletion/archive, status/role/name filters, pagination and read-only submission history with approved totals and review outcomes. Names come from the current User record, including historical submissions and reports. Audit snapshots remain immutable, while the actor display resolves the current name.
+
+Only Admin can call the management API. Admin may rename/reset their own account, but cannot deactivate or delete any administrator. Foreman URLs are guarded server-side and Admin-only API actions return 403. PIN changes and deactivation revoke sessions transactionally. Login locks the same user row so concurrent resets cannot leave a stale session active.
+
+Delete permanently removes only accounts with no submissions, approvals, adjustments or audit references. All other accounts are archived/inactivated. New accounts already have a creation audit event and will therefore normally archive. Archived users retain their ID, name and history and can be reactivated. PINs remain unique even for inactive/archived accounts so reactivation never creates an ambiguous login. No cascade deletes are used.
 
 ## Calculations and assumptions
 
@@ -117,4 +140,6 @@ Cloudflare resources, billing and PostgreSQL/Accelerate accounts must be configu
 8. Test supervisor deactivation/PIN reset/session expiry/lockout; restart the service and verify persistence.
 9. Verify photo uploads, CSV/print reports, schedule/weights, private social metadata, and populated-state responsive forms on the deployment target.
 
-Completed local checks: TypeScript, production build, calculation/security unit tests, SQL migration/rollback/immutability tests, and empty-state visual checks of required desktop pages plus representative 375px/768px/1440px layouts. These do not replace a live PostgreSQL/Accelerate end-to-end test.
+Automated checks include the existing calculation/security suite and migration/rollback/immutability tests, plus a disposable PGlite PostgreSQL wire-protocol bridge exercising the real `pg` driver and Prisma adapter: seed/rerun, both role logins, rename, PIN uniqueness/reset, session revocation, deactivate/reactivate, archive/delete, and preservation of approved totals. Tests never connect to production. The bridge has a single backend; it does not prove multi-connection PostgreSQL concurrency or live Cloudflare latency/limits. Live initialization and a production smoke test are still required.
+
+`npm run test:worker` additionally loads the generated Worker and its compiler WASM module into the installed Cloudflare runtime (Miniflare), checks both roles over the TCP adapter, host-only secure cookies, Admin-route restrictions, logout revocation and production preview isolation. It uses disposable local data. Run it after `npm run build`. Vite explicitly selects Prisma's WASM entry because Node compatibility can otherwise resolve the filesystem-dependent Node entry; the query-compiler WASM is emitted into the Worker build. The local Wrangler development proxy was intermittently unstable during smoke tests, so this command tests the runtime directly, with explicit teardown.

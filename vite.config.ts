@@ -2,6 +2,7 @@ import { sites } from '@openai/sites-vite-plugin';
 import tailwindcss from '@tailwindcss/postcss';
 import vinext from 'vinext';
 import { defineConfig } from 'vite';
+import { fileURLToPath } from 'node:url';
 import hostingConfig from './.openai/hosting.json' with { type: 'json' };
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
@@ -14,6 +15,7 @@ const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === 'seatbelt';
 
 const localBindingConfig = {
   main: 'vinext/server/fetch-handler',
+  compatibility_date: '2026-08-31',
   compatibility_flags: ['nodejs_compat'],
   d1_databases: d1
     ? [
@@ -45,6 +47,19 @@ export default defineConfig(async () => {
   const { cloudflare } = await import('@cloudflare/vite-plugin');
 
   return {
+    // The nodejs_compat condition can otherwise select Prisma's Node entry,
+    // which tries to read its compiler from the filesystem at runtime.
+    // Use the Worker WASM entry in Vite; local CLI/tests retain the Node entry.
+    resolve: {
+      alias: [
+        {
+          find: /^@prisma\/client$/,
+          replacement: fileURLToPath(
+            new URL('./node_modules/.prisma/client/wasm.js', import.meta.url),
+          ).replaceAll('\\', '/'),
+        },
+      ],
+    },
     css: { postcss: { plugins: [tailwindcss()] } },
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }

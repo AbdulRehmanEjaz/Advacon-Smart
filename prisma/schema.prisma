@@ -1,10 +1,10 @@
 generator client {
   provider = "prisma-client-js"
+  engineType = "client"
 }
 datasource db {
   provider = "postgresql"
   url = env("DATABASE_URL")
-  directUrl = env("DIRECT_DATABASE_URL")
 }
 enum Role {
   ADMIN
@@ -24,6 +24,7 @@ model User {
   pinLookup String @unique
   defaultPin Boolean @default(true)
   active Boolean @default(true)
+  archivedAt DateTime?
   lastLogin DateTime?
   failedLoginCount Int @default(0)
   lockedUntil DateTime?

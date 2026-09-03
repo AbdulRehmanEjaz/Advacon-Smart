@@ -5,7 +5,11 @@ import { PGlite } from '@electric-sql/pglite';
 await test('PostgreSQL migrations, atomic rollback and immutable approval history', async () => {
   const pg = new PGlite();
   try {
-    for (const name of ['202609020001_initial', '202609020002_integrity'])
+    for (const name of [
+      '202609020001_initial',
+      '202609020002_integrity',
+      '202609030001_supervisor_archive',
+    ])
       await pg.exec(
         await readFile(
           new URL(

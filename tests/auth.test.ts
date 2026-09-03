@@ -43,6 +43,7 @@ await test('cookies are HttpOnly, SameSite strict and expiring', () => {
   assert.match(result, /SameSite=Strict/);
   assert.match(result, /Max-Age=28800/);
   assert.equal(result.includes('ADMIN'), false);
+  assert.equal(result.includes('Domain='), false);
 });
 await test('PIN hashing never retains plaintext and lookup is secret-bound', async () => {
   process.env.SESSION_SECRET =
