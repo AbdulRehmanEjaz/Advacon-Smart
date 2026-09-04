@@ -7,7 +7,6 @@ import {
   userFor,
 } from '@/lib/server/auth';
 import { getState, getStateDetail, mutate } from '@/lib/server/service';
-import { withDatabase } from '@/lib/server/db';
 export const dynamic = 'force-dynamic';
 const reply = (data: unknown, status = 200, headers = {}) =>
   Response.json(data, {
@@ -74,7 +73,11 @@ async function handler(req: Request) {
         },
         503,
       );
-    if (e instanceof Error && 'code' in e && e.code === 'P2002')
+    if (
+      e instanceof Error &&
+      (e.message.includes('UNIQUE constraint failed') ||
+        e.message.includes('SUBMISSION_NOT_REVIEWABLE'))
+    )
       return reply(
         { error: 'This record already exists. Refresh and try again.' },
         409,
@@ -92,5 +95,5 @@ async function handler(req: Request) {
     );
   }
 }
-export const GET = (req: Request) => withDatabase(() => handler(req));
+export const GET = handler;
 export const POST = GET;

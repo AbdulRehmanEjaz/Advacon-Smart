@@ -1,7 +1,3 @@
-import { hash } from 'bcryptjs';
-
-// Temporary compatibility for database-backed Supervisor management and seed.
-// Runtime login intentionally does not import or use these helpers.
 export async function lookup(pin: string) {
   const secret = process.env.SESSION_SECRET;
   if (!secret || secret.length < 32) throw Error('SETUP_REQUIRED');
@@ -19,5 +15,3 @@ export async function lookup(pin: string) {
     (byte) => byte.toString(16).padStart(2, '0'),
   ).join('');
 }
-
-export const pinHash = (pin: string) => hash(pin, 12);

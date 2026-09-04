@@ -75,34 +75,16 @@ export function Workspace({
     [open, setOpen] = useState(false),
     [adding, setAdding] = useState(false),
     [query, setQuery] = useState(''),
-    [pageLoading, setPageLoading] = useState(false);
+    [detailLoading, setDetailLoading] = useState(false);
   const loadedDetails = useRef(
-    new Set(
-      initialState
-        ? [
-            ...(initialState.zones ? ['blocks'] : []),
-            ...(initialState.inspections ? ['quality'] : []),
-            ...(initialState.users ? ['supervisors'] : []),
-            ...(initialState.audit ? ['audit'] : []),
-            ...(['daily', 'approvals', 'reports'].includes(view) ? [view] : []),
-          ]
-        : [],
-    ),
+    new Set(initialState?.audit ? ['audit'] : []),
   );
+  const loadingDetails = useRef(new Set<string>());
   const detailSequence = useRef(0);
-  const detailViews = new Set([
-    'blocks',
-    'quality',
-    'supervisors',
-    'audit',
-    'daily',
-    'approvals',
-    'reports',
-  ]);
   async function refresh() {
     try {
       const r = await fetch(
-        `/api/state?view=${encodeURIComponent(activeView)}`,
+        '/api/state?view=dashboard',
         {
           cache: 'no-store',
         },
@@ -114,16 +96,21 @@ export function Workspace({
       const d = (await r.json()) as State & { error?: string };
       if (!r.ok) throw Error(d.error);
       setState(d);
-      if (detailViews.has(activeView)) loadedDetails.current.add(activeView);
+      loadedDetails.current.delete('audit');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to load project.');
     }
   }
   async function loadDetail(nextView: string) {
-    if (!detailViews.has(nextView) || loadedDetails.current.has(nextView))
+    if (
+      nextView !== 'audit' ||
+      loadedDetails.current.has('audit') ||
+      loadingDetails.current.has('audit')
+    )
       return;
     const sequence = ++detailSequence.current;
-    setPageLoading(true);
+    loadingDetails.current.add('audit');
+    setDetailLoading(true);
     try {
       const r = await fetch(
         `/api/state?view=${encodeURIComponent(nextView)}&detail=1`,
@@ -136,11 +123,12 @@ export function Workspace({
       const detail = (await r.json()) as Partial<State> & { error?: string };
       if (!r.ok) throw Error(detail.error);
       setState((current) => (current ? { ...current, ...detail } : current));
-      loadedDetails.current.add(nextView);
+      loadedDetails.current.add('audit');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to load this page.');
     } finally {
-      if (sequence === detailSequence.current) setPageLoading(false);
+      loadingDetails.current.delete('audit');
+      if (sequence === detailSequence.current) setDetailLoading(false);
     }
   }
   function navigate(event: globalThis.MouseEvent) {
@@ -161,29 +149,22 @@ export function Workspace({
       : url.pathname.match(/^\/workspace\/([^/]+)$/)?.[1];
     if (!nextView) return;
     event.preventDefault();
-    detailSequence.current += 1;
-    setPageLoading(false);
     setOpen(false);
     setQuery('');
     setActiveView(nextView);
     window.history.pushState({}, '', url.pathname + url.search);
   }
-  // Production callers always inject initial state. The fallback remains in the
-  // render below only for a recoverable integration error, never as normal UX.
   useEffect(() => {
-    // oxlint-disable-next-line react/react-compiler -- Async page-specific loading is triggered only after navigation.
+    // oxlint-disable-next-line react/react-compiler -- Audit detail starts asynchronously after the page is already rendered.
     void loadDetail(activeView);
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- Detail cache intentionally lives for the workspace lifetime.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- Audit cache intentionally lives for the workspace lifetime.
   }, [activeView]);
   useEffect(() => {
     const back = () => {
-      const pathView = window.location.pathname
-        .split('/')
-        .filter(Boolean)
-        .at(-1);
+      const pathView = preview
+        ? new URL(window.location.href).searchParams.get('view')
+        : window.location.pathname.split('/').filter(Boolean).at(-1);
       if (pathView) {
-        detailSequence.current += 1;
-        setPageLoading(false);
         setActiveView(pathView);
       }
     };
@@ -425,9 +406,7 @@ export function Workspace({
               <button onClick={() => setError('')}>Dismiss</button>
             </div>
           )}
-          {pageLoading ? (
-            <output className="card shell-loading">Loading this page…</output>
-          ) : !allowed ? (
+          {!allowed ? (
             <div className="card empty-note">
               This page requires administrator access.
             </div>
@@ -438,6 +417,7 @@ export function Workspace({
               query={query}
               refresh={refresh}
               preview={preview}
+              detailLoading={detailLoading}
             />
           ) : activeView === 'dashboard' ? (
             <Dashboard state={state} href={href} />
@@ -448,6 +428,7 @@ export function Workspace({
               query=""
               refresh={refresh}
               preview={preview}
+              detailLoading={detailLoading}
             />
           )}
           <footer

@@ -1,37 +1,36 @@
 import { userFor, HttpError } from '@/lib/server/auth';
-import { db, withDatabase } from '@/lib/server/db';
-async function handler(
+import { first } from '@/lib/server/d1';
+
+type PhotoRow = {
+  externalUrl: string | null;
+  supervisorId: string;
+};
+
+export async function GET(
   req: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   try {
     const user = await userFor(req);
     const { id } = await context.params;
-    const photo = await db().submissionPhoto.findUnique({
-      where: { id },
-      include: { submission: { select: { supervisorId: true } } },
-    });
+    const photo = await first<PhotoRow>(
+      `SELECT p.external_url AS externalUrl,s.supervisor_id AS supervisorId
+       FROM submission_photos p JOIN daily_submissions s ON s.id=p.submission_id
+       WHERE p.id=?`,
+      id,
+    );
     if (
       !photo ||
-      (user.role !== 'ADMIN' && photo.submission.supervisorId !== user.id)
+      (user.role !== 'ADMIN' && photo.supervisorId !== user.id) ||
+      !photo.externalUrl ||
+      !photo.externalUrl.startsWith('https://')
     )
       throw new HttpError(404, 'Not found');
-    return new Response(photo.bytes, {
-      headers: {
-        'Content-Type': photo.mime,
-        'Cache-Control': 'private, no-store',
-        'X-Content-Type-Options': 'nosniff',
-        'Content-Security-Policy': "default-src 'none'; sandbox",
-      },
-    });
-  } catch (e) {
+    return Response.redirect(photo.externalUrl, 302);
+  } catch (error) {
     return Response.json(
       { error: 'Photo unavailable.' },
-      { status: e instanceof HttpError ? e.status : 500 },
+      { status: error instanceof HttpError ? error.status : 500 },
     );
   }
 }
-export const GET = (
-  req: Request,
-  context: { params: Promise<{ id: string }> },
-) => withDatabase(() => handler(req, context));

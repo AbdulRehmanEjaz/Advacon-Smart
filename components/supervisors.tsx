@@ -167,7 +167,7 @@ export function Supervisors({
                     )}
                     {editable && (
                       <option value="pin" disabled={preview}>
-                        Set new PIN
+                        Reserve future PIN
                       </option>
                     )}
                     <option value="history">View history</option>
@@ -210,8 +210,9 @@ export function Supervisors({
         </button>
       </div>
       <p className="card-subtitle">
-        PINs are never displayed. Inactive and archived accounts cannot sign in.
-        PINs remain reserved to prevent conflicts on reactivation.
+        Runtime Supervisor access currently uses the private Worker PIN. Record
+        PINs are reserved for the later dynamic-authentication phase and are
+        never displayed.
       </p>
       {selection &&
         (selection.action === 'history' ? (
@@ -258,7 +259,7 @@ function SupervisorEditor({
       : action === 'rename'
         ? 'Edit name'
         : action === 'pin'
-          ? 'Set new PIN'
+          ? 'Reserve future PIN'
           : action === 'delete'
             ? 'Delete Supervisor'
             : user?.active
@@ -285,11 +286,11 @@ function SupervisorEditor({
       setConfirmation('');
       await onSaved(
         result.outcome === 'archived'
-          ? 'Account archived. Login disabled; all history preserved.'
+          ? 'Record archived; all project history preserved.'
           : result.outcome === 'deleted'
             ? 'Unused account permanently deleted. No project history was removed.'
             : action === 'pin'
-              ? 'PIN changed. Existing sessions have been revoked.'
+              ? 'Future dynamic-login PIN reserved.'
               : 'Account updated successfully.',
       );
     } catch (e) {
@@ -358,21 +359,21 @@ function SupervisorEditor({
         )}
         {action === 'pin' && (
           <p className="notice info">
-            Saving signs this account out of every device. The previous PIN will
-            stop working.
+            This does not change the current Worker-secret Supervisor login.
+            The value is reserved for the later dynamic-authentication phase.
           </p>
         )}
         {action === 'status' && (
           <p className="notice info">
             {user?.active
-              ? 'Login access will be disabled and all current sessions revoked. Submissions, approvals and reports will remain unchanged.'
-              : 'Login access will be restored using the current PIN. All historical records will remain linked to this account.'}
+              ? 'The project record will be marked inactive. Submissions, approvals and reports remain unchanged; the current Worker-secret login is separate.'
+              : 'The project record will be reactivated. Historical records remain linked; the current Worker-secret login is separate.'}
           </p>
         )}
         {action === 'delete' && (
           <div className="notice">
             {user?.hasHistory !== false
-              ? 'This Supervisor has project history and cannot be permanently removed. The account will be archived and login access disabled.'
+              ? 'This Supervisor has project history and cannot be permanently removed. The record will be archived and history preserved.'
               : 'This unused account will be permanently deleted. If any project history is found during the final check, it will be archived instead.'}
           </div>
         )}

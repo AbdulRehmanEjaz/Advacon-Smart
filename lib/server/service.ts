@@ -1,7 +1,6 @@
 import { z } from 'zod';
-import type { Prisma } from '@prisma/client';
-import { db } from './db';
-import { admin, type Actor, HttpError, publicUser } from './auth';
+import { admin, type Actor, HttpError } from './auth';
+import { database, first, id, json, now, statement } from './d1';
 import {
   approvedTotals,
   assertStageOrder,
@@ -12,228 +11,281 @@ import {
   type Block,
 } from '../domain/calculations';
 import type { PackageDefinition, Settings } from '../domain/baseline';
+import type { Inspection, User } from '../types';
 import { assertReviewable } from '../domain/workflow';
-import { manageSupervisor } from './supervisors';
-type Tx = Omit<
-  ReturnType<typeof db>,
-  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
->;
-export const submissionInclude = {
-  supervisor: { select: { name: true } },
-  items: { include: { adjustments: true } },
-  photos: { select: { id: true, name: true } },
-  approvals: { orderBy: { createdAt: 'asc' as const } },
-} as const;
-export const serial = <T>(x: unknown): T => JSON.parse(JSON.stringify(x));
-async function records(tx: Tx) {
-  const [settings, packages, submissions, blocks] = await Promise.all([
-    tx.projectSettings.findUniqueOrThrow({
-      where: { projectId: 'tree-project' },
-    }),
-    tx.workPackage.findMany({
-      orderBy: { order: 'asc' },
-      include: { activities: { include: { schedule: true } } },
-    }),
-    tx.dailySubmission.findMany({
-      include: submissionInclude,
-      orderBy: { createdAt: 'desc' },
-    }),
-    tx.block.findMany({ orderBy: { id: 'asc' } }),
-  ]);
-  return {
-    settings: serial<Settings>(settings),
-    packages: serial<PackageDefinition[]>(packages),
-    submissions: serial<Submission[]>(submissions),
-    blocks: serial<Block[]>(blocks).map((b) => ({
-      ...b,
-      irrigationTarget:
-        b.irrigationTarget == null ? null : Number(b.irrigationTarget),
-    })),
-  };
-}
-const dashboardSubmission = {
-  id: true,
-  supervisorId: true,
-  supervisor: { select: { name: true } },
-  status: true,
-  workDate: true,
-  createdAt: true,
-  blockId: true,
-  packageId: true,
-  version: true,
-  items: {
-    select: {
-      id: true,
-      activityId: true,
-      quantity: true,
-      adjustments: { select: { quantity: true, createdAt: true } },
-    },
-  },
-  approvals: { select: { decision: true, createdAt: true } },
-} as const;
+import { supervisorAction } from './supervisors';
+import { lookup } from './legacy-credentials';
 
-async function dashboardRecords(tx: Tx, supervisorId?: string) {
-  const [settings, packages, submissions, blocks] = await Promise.all([
-    tx.projectSettings.findUniqueOrThrow({
-      where: { projectId: 'tree-project' },
-    }),
-    tx.workPackage.findMany({
-      orderBy: { order: 'asc' },
-      include: { activities: { include: { schedule: true } } },
-    }),
-    tx.dailySubmission.findMany({
-      where: supervisorId ? { supervisorId } : undefined,
-      select: dashboardSubmission,
-      orderBy: { createdAt: 'desc' },
-    }),
-    tx.block.findMany({ orderBy: { id: 'asc' } }),
+type Row = Record<string, string | number | boolean | null>;
+type Core = {
+  settings: Settings;
+  packages: PackageDefinition[];
+  submissions: Submission[];
+  blocks: Block[];
+  zones: { id: string; capacity: number; spacing: string }[];
+  users: User[];
+  inspections: Inspection[];
+};
+
+export const serial = <T>(value: unknown): T => JSON.parse(JSON.stringify(value));
+const bool = (value: unknown) => Boolean(Number(value));
+const parseJson = (value: string | number | boolean | null) => {
+  if (value == null) return null;
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return null;
+  }
+};
+
+const settingsSql = `SELECT
+  design_capacity AS designCapacity,
+  translocation_target AS translocationTarget,
+  translocation_target_is_approximate AS translocationTargetIsApproximate,
+  new_tree_target AS newTreeTarget,
+  irrigation_target AS irrigationTarget,
+  block_target AS blockTarget,
+  row_target AS rowTarget,
+  post_target AS postTarget,
+  valve_target AS valveTarget,
+  decoder_target AS decoderTarget,
+  productivity_min AS productivityMin,
+  productivity_max AS productivityMax,
+  amber_variance AS amberVariance,
+  red_variance AS redVariance,
+  pending_hours AS pendingHours
+FROM project_settings WHERE project_id = 'tree-project'`;
+
+const submissionsSql = (filtered: boolean) => `SELECT
+  s.id, s.request_key AS requestKey, s.supervisor_id AS supervisorId,
+  u.name AS supervisorName, s.work_date AS workDate, s.block_id AS blockId,
+  s.package_id AS packageId, s.batch_number AS batchNumber, s.remarks,
+  s.override_reason AS overrideReason, s.status, s.version,
+  s.created_at AS createdAt, s.updated_at AS updatedAt
+FROM daily_submissions s JOIN users u ON u.id = s.supervisor_id
+${filtered ? 'WHERE s.supervisor_id = ?' : ''}
+ORDER BY s.created_at DESC`;
+
+async function loadCore(supervisorId?: string): Promise<Core> {
+  const db = database();
+  const filtered = Boolean(supervisorId);
+  const bind = (sql: string) =>
+    filtered ? db.prepare(sql).bind(supervisorId) : db.prepare(sql);
+  const results = await db.batch([
+    db.prepare(settingsSql),
+    db.prepare(
+      `SELECT id,name,weight,sort_order AS "order" FROM work_packages ORDER BY sort_order`,
+    ),
+    db.prepare(`SELECT a.id,a.package_id AS packageId,a.name,a.unit,
+      a.target_key AS targetKey,a.target,a.weight,
+      sc.start AS scheduleStart,sc.finish AS scheduleFinish
+      FROM activities a LEFT JOIN schedule_activities sc ON sc.activity_id=a.id`),
+    db.prepare(`SELECT id,name,zone_id AS zoneId,capacity,
+      irrigation_target AS irrigationTarget,support_rows AS supportRows,hold
+      FROM blocks ORDER BY id`),
+    db.prepare(`SELECT id,capacity,spacing FROM zones ORDER BY id`),
+    bind(submissionsSql(filtered)),
+    bind(`SELECT i.id,i.submission_id AS submissionId,i.activity_id AS activityId,i.quantity
+      FROM daily_submission_items i${filtered ? ' WHERE i.submission_id IN (SELECT id FROM daily_submissions WHERE supervisor_id=?)' : ''}`),
+    bind(`SELECT a.item_id AS itemId,a.quantity,a.created_at AS createdAt
+      FROM adjustments a${filtered ? ' WHERE a.item_id IN (SELECT i.id FROM daily_submission_items i JOIN daily_submissions s ON s.id=i.submission_id WHERE s.supervisor_id=?)' : ''}`),
+    bind(`SELECT a.submission_id AS submissionId,a.decision,a.comment,a.created_at AS createdAt
+      FROM approvals a${filtered ? ' WHERE a.submission_id IN (SELECT id FROM daily_submissions WHERE supervisor_id=?)' : ''} ORDER BY a.created_at`),
+    bind(`SELECT p.id,p.submission_id AS submissionId,p.name,p.mime,p.external_url AS externalUrl
+      FROM submission_photos p${filtered ? ' WHERE p.submission_id IN (SELECT id FROM daily_submissions WHERE supervisor_id=?)' : ''}`),
+    db.prepare(`SELECT id,name,role,active,archived_at AS archivedAt,
+      created_at AS createdAt,updated_at AS updatedAt FROM users ORDER BY name`),
+    db.prepare(`SELECT id FROM users u WHERE
+      EXISTS (SELECT 1 FROM daily_submissions WHERE supervisor_id=u.id) OR
+      EXISTS (SELECT 1 FROM approvals WHERE reviewer_id=u.id) OR
+      EXISTS (SELECT 1 FROM adjustments WHERE author_id=u.id) OR
+      EXISTS (SELECT 1 FROM audit_logs WHERE user_id=u.id OR (entity_type='User' AND entity_id=u.id))`),
+    db.prepare(`SELECT id,number,block_id AS blockId,type,inspector,result,date,
+      remarks,first_attempt AS firstAttempt,created_at AS createdAt
+      FROM inspections ORDER BY date DESC`),
+    db.prepare(`SELECT id,inspection_id AS inspectionId,description,responsible,
+      due_date AS dueDate,closed_at AS closedAt,created_at AS createdAt FROM observations`),
   ]);
-  return {
-    settings: serial<Settings>(settings),
-    packages: serial<PackageDefinition[]>(packages),
-    submissions: serial<Submission[]>(submissions).map((submission) => ({
-      ...submission,
-      batchNumber: null,
-      remarks: '',
-      photos: [],
-      approvals: submission.approvals.map((approval) => ({
-        ...approval,
-        comment: '',
+  const rows = results.map((result) => result.results as Row[]);
+  const settingsRow = rows[0][0];
+  if (!settingsRow) throw Error('D1_NOT_INITIALIZED');
+  const settings = {
+    ...settingsRow,
+    translocationTargetIsApproximate: bool(
+      settingsRow.translocationTargetIsApproximate,
+    ),
+  } as Settings;
+  const activities = rows[2].map((activity) => ({
+    id: String(activity.id),
+    packageId: String(activity.packageId),
+    name: String(activity.name),
+    unit: String(activity.unit),
+    targetKey: String(activity.targetKey),
+    target: activity.target == null ? null : Number(activity.target),
+    weight: Number(activity.weight),
+    schedule: activity.scheduleStart
+      ? {
+          start: String(activity.scheduleStart),
+          finish: String(activity.scheduleFinish),
+        }
+      : null,
+  }));
+  const packages = rows[1].map((item) => ({
+    id: String(item.id),
+    name: String(item.name),
+    weight: Number(item.weight),
+    order: Number(item.order),
+    activities: activities.filter((activity) => activity.packageId === item.id),
+  }));
+  const adjustments = rows[7];
+  const items = rows[6].map((item) => ({
+    id: String(item.id),
+    submissionId: String(item.submissionId),
+    activityId: String(item.activityId),
+    quantity: Number(item.quantity),
+    adjustments: adjustments
+      .filter((adjustment) => adjustment.itemId === item.id)
+      .map((adjustment) => ({
+        quantity: Number(adjustment.quantity),
+        createdAt: String(adjustment.createdAt),
       })),
-    })),
-    blocks: serial<Block[]>(blocks).map((block) => ({
-      ...block,
+  }));
+  const submissions = rows[5].map((submission) => ({
+    id: String(submission.id),
+    supervisorId: String(submission.supervisorId),
+    supervisor: { name: String(submission.supervisorName) },
+    status: String(submission.status),
+    workDate: String(submission.workDate),
+    createdAt: String(submission.createdAt),
+    blockId: String(submission.blockId),
+    packageId: String(submission.packageId),
+    version: Number(submission.version),
+    batchNumber:
+      submission.batchNumber == null ? null : String(submission.batchNumber),
+    remarks: String(submission.remarks || ''),
+    items: items
+      .filter((item) => item.submissionId === submission.id)
+      .map(({ submissionId: _submissionId, ...item }) => item),
+    photos: rows[9]
+      .filter((photo) => photo.submissionId === submission.id)
+      .map((photo) => ({ id: String(photo.id), name: String(photo.name) })),
+    approvals: rows[8]
+      .filter((approval) => approval.submissionId === submission.id)
+      .map((approval) => ({
+        decision: String(approval.decision),
+        comment: String(approval.comment || ''),
+        createdAt: String(approval.createdAt),
+      })),
+  }));
+  return {
+    settings,
+    packages,
+    submissions,
+    blocks: rows[3].map((block) => ({
+      id: String(block.id),
+      name: String(block.name),
+      zoneId: String(block.zoneId),
+      capacity: block.capacity == null ? null : Number(block.capacity),
       irrigationTarget:
         block.irrigationTarget == null ? null : Number(block.irrigationTarget),
+      supportRows:
+        block.supportRows == null ? null : Number(block.supportRows),
+      hold: bool(block.hold),
     })),
+    zones: rows[4].map((zone) => ({
+      id: String(zone.id),
+      capacity: Number(zone.capacity),
+      spacing: String(zone.spacing),
+    })),
+    users: supervisorId ? [] : usersFromRows(rows[10], rows[11]),
+    inspections: supervisorId ? [] : inspectionsFromRows(rows[12], rows[13]),
   };
 }
 
-type DetailView =
-  | 'blocks'
-  | 'quality'
-  | 'supervisors'
-  | 'audit'
-  | 'daily'
-  | 'approvals'
-  | 'reports';
+function userFromRow(row: Row) {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    role: row.role as 'ADMIN' | 'FOREMAN',
+    active: bool(row.active),
+    archivedAt: row.archivedAt == null ? null : String(row.archivedAt),
+    defaultPin: false,
+    lastLogin: null,
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+  };
+}
 
-async function supervisorRecords(tx: Tx) {
-  const [userRows, auditActors, auditSubjects] = await Promise.all([
-    tx.user.findMany({
-      select: {
-        ...publicUser,
-        _count: {
-          select: { submissions: true, approvals: true, adjustments: true },
-        },
-      },
-      orderBy: { name: 'asc' },
-    }),
-    tx.auditLog.groupBy({
-      by: ['userId'],
-      where: { userId: { not: null } },
-    }),
-    tx.auditLog.groupBy({
-      by: ['entityId'],
-      where: { entityType: 'User', entityId: { not: null } },
-    }),
-  ]);
-  const historyIds = new Set([
-    ...auditActors.map((a) => a.userId),
-    ...auditSubjects.map((a) => a.entityId),
-  ]);
-  return userRows.map(({ _count, ...user }) => ({
-    ...user,
-    hasHistory:
-      historyIds.has(user.id) ||
-      Object.values(_count).some((count) => count > 0),
+function usersFromRows(userRows: Row[], historyRows: Row[]) {
+  const historyIds = new Set(
+    historyRows.map((row) => String(row.id)),
+  );
+  return userRows.map((row) => ({
+    ...userFromRow(row),
+    hasHistory: historyIds.has(String(row.id)),
   }));
 }
 
-async function detailRecords(tx: Tx, view: string | undefined, user: Actor) {
-  if (['daily', 'approvals', 'reports'].includes(view || ''))
-    return {
-      submissions: await tx.dailySubmission.findMany({
-        where: user.role === 'FOREMAN' ? { supervisorId: user.id } : undefined,
-        include: submissionInclude,
-        orderBy: { createdAt: 'desc' },
-      }),
-    };
-  if (view === 'blocks')
-    return { zones: await tx.zone.findMany({ orderBy: { id: 'asc' } }) };
-  if (view === 'quality')
-    return {
-      inspections: await tx.inspection.findMany({
-        include: { observations: true },
-        orderBy: { date: 'desc' },
-      }),
-    };
-  if (view === 'supervisors') return { users: await supervisorRecords(tx) };
+function inspectionsFromRows(inspectionRows: Row[], observationRows: Row[]) {
+  return inspectionRows.map((row) => ({
+    id: String(row.id),
+    number: String(row.number),
+    blockId: String(row.blockId),
+    type: String(row.type),
+    inspector: String(row.inspector),
+    result: String(row.result),
+    date: String(row.date),
+    remarks: String(row.remarks || ''),
+    firstAttempt: bool(row.firstAttempt),
+    createdAt: String(row.createdAt),
+    observations: observationRows
+      .filter((observation) => observation.inspectionId === row.id)
+      .map((observation) => ({
+        id: String(observation.id),
+        description: String(observation.description),
+        responsible: String(observation.responsible),
+        dueDate: String(observation.dueDate),
+        closedAt:
+          observation.closedAt == null ? null : String(observation.closedAt),
+      })),
+  }));
+}
+
+async function details(view: string | undefined, _user: Actor) {
   if (view === 'audit') {
-    const [audit, users] = await Promise.all([
-      tx.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 500 }),
-      tx.user.findMany({ select: publicUser, orderBy: { name: 'asc' } }),
-    ]);
-    return { audit, users };
+    const audit = await database()
+      .prepare(`SELECT id,user_id AS userId,role,action,entity_type AS entityType,
+        entity_id AS entityId,before_json AS beforeJson,after_json AS afterJson,
+        created_at AS createdAt FROM audit_logs ORDER BY created_at DESC LIMIT 500`)
+      .all<Row>();
+    return {
+      audit: audit.results.map(({ beforeJson, afterJson, ...row }) => ({
+        ...row,
+        before: parseJson(beforeJson),
+        after: parseJson(afterJson),
+      })),
+    };
   }
   return {};
 }
 
 export async function getState(user: Actor, view?: string) {
-  return db().$transaction(
-    async (tx) => {
-      const core = await dashboardRecords(
-        tx,
-        user.role === 'FOREMAN' ? user.id : undefined,
-      );
-      return { ...core, user, ...(await detailRecords(tx, view, user)) };
-    },
-    { isolationLevel: 'RepeatableRead', timeout: 15000 },
-  );
+  const core = await loadCore(user.role === 'FOREMAN' ? user.id : undefined);
+  return { ...core, user, ...(await details(view, user)) };
 }
 
 export async function getStateDetail(user: Actor, view: string) {
-  if (
-    (user.role !== 'ADMIN' && view !== 'daily') ||
-    !(['blocks', 'quality', 'supervisors', 'audit'] as DetailView[]).includes(
-      view as DetailView,
-    )
-  )
-    return {};
-  return detailRecords(db(), view, user);
+  if (user.role !== 'ADMIN' || view !== 'audit') return {};
+  return details(view, user);
 }
-async function audit(
-  tx: Tx,
-  user: Actor,
-  action: string,
-  entityType: string,
-  entityId?: string,
-  before?: unknown,
-  after?: unknown,
-) {
-  await tx.auditLog.create({
-    data: {
-      userId: user.id,
-      role: user.role,
-      action,
-      entityType,
-      entityId,
-      ...(before !== undefined
-        ? { before: serial<Prisma.InputJsonValue>(before) }
-        : {}),
-      ...(after !== undefined
-        ? { after: serial<Prisma.InputJsonValue>(after) }
-        : {}),
-    },
-  });
-}
+
 const date = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
   .refine(
-    (v) =>
-      !Number.isNaN(new Date(v).getTime()) &&
-      new Date(v).toISOString().slice(0, 10) === v,
+    (value) =>
+      !Number.isNaN(new Date(value).getTime()) &&
+      new Date(value).toISOString().slice(0, 10) === value,
     'Invalid date',
   );
 const reason = z.string().trim().min(5).max(2000);
@@ -257,19 +309,21 @@ const submissionSchema = z.object({
     .min(1)
     .max(30),
 });
+
 function requireThat(value: unknown, message: string): asserts value {
   if (!value) throw new HttpError(400, message);
 }
+
 function checkPlacement(
-  core: Awaited<ReturnType<typeof records>>,
+  core: Core,
   block: Block,
   items: { activityId: string; quantity: number }[],
   user: Actor,
   override?: string,
 ) {
   const trees = items
-    .filter((i) => ['placed', 'planted'].includes(i.activityId))
-    .reduce((n, i) => n + i.quantity, 0);
+    .filter((item) => ['placed', 'planted'].includes(item.activityId))
+    .reduce((sum, item) => sum + item.quantity, 0);
   if (!trees) return;
   const state = readiness(block, core.submissions);
   const problems = [
@@ -283,12 +337,12 @@ function checkPlacement(
   if (problems.length)
     requireThat(
       user.role === 'ADMIN' && override && override.trim().length >= 5,
-      problems.join('. ') +
-        '. An administrator must provide a documented override.',
+      `${problems.join('. ')}. An administrator must provide a documented override.`,
     );
 }
+
 function validateCandidate(
-  core: Awaited<ReturnType<typeof records>>,
+  core: Core,
   submissions: Submission[],
   user: Actor,
   override?: string,
@@ -296,661 +350,483 @@ function validateCandidate(
   try {
     for (const block of core.blocks)
       assertStageOrder(
-        approvedTotals(submissions.filter((s) => s.blockId === block.id)),
+        approvedTotals(submissions.filter((item) => item.blockId === block.id)),
       );
-  } catch (e) {
+  } catch (error) {
     throw new HttpError(
       400,
-      e instanceof Error ? e.message : 'Invalid stage quantities.',
+      error instanceof Error ? error.message : 'Invalid stage quantities.',
     );
   }
   const totals = approvedTotals(submissions);
-  for (const a of core.packages.flatMap((p) => p.activities))
+  for (const activity of core.packages.flatMap((item) => item.activities))
     if (
-      (totals[a.id] || 0) > targetFor(a, core.settings) &&
-      targetFor(a, core.settings) > 0
+      (totals[activity.id] || 0) > targetFor(activity, core.settings) &&
+      targetFor(activity, core.settings) > 0
     )
       requireThat(
         user.role === 'ADMIN' && override && override.length >= 5,
-        `${a.name} would exceed its project target. A documented administrator override is required.`,
+        `${activity.name} would exceed its project target. A documented administrator override is required.`,
       );
   for (const block of core.blocks) {
-    const t = approvedTotals(submissions.filter((s) => s.blockId === block.id));
-    if ((t.commissioned || 0) > 0)
+    const totalsForBlock = approvedTotals(
+      submissions.filter((item) => item.blockId === block.id),
+    );
+    if ((totalsForBlock.commissioned || 0) > 0)
       requireThat(
         block.irrigationTarget != null &&
           ['route', 'trench', 'pipe', 'backfill'].every(
-            (k) => (t[k] || 0) >= Number(block.irrigationTarget),
+            (key) =>
+              (totalsForBlock[key] || 0) >= Number(block.irrigationTarget),
           ) &&
-          (t.valves || 0) >= 1 &&
-          (t.decoders || 0) >= 1,
+          (totalsForBlock.valves || 0) >= 1 &&
+          (totalsForBlock.decoders || 0) >= 1,
         'Commissioning requires the configured block pipe length, backfill, valve and decoder.',
       );
   }
 }
+
+function auditStatement(
+  user: Actor,
+  action: string,
+  entityType: string,
+  entityId?: string,
+  before?: unknown,
+  after?: unknown,
+) {
+  return statement(
+    `INSERT INTO audit_logs (id,user_id,role,action,entity_type,entity_id,before_json,after_json,created_at)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
+    id(),
+    user.id,
+    user.role,
+    action,
+    entityType,
+    entityId ?? null,
+    json(before),
+    json(after),
+    now(),
+  );
+}
+
+async function activeUser(user: Actor) {
+  const row = await first<Row>(
+    `SELECT id,name,role,active,archived_at AS archivedAt,created_at AS createdAt,
+     updated_at AS updatedAt FROM users WHERE id=?`,
+    user.id,
+  );
+  if (!row || !bool(row.active) || row.archivedAt || row.role !== user.role)
+    throw new HttpError(403, 'Your access has changed. Please sign in again.');
+  return row;
+}
+
 export async function mutate(path: string, req: Request, user: Actor) {
   if (Number(req.headers.get('content-length') || 0) > 8_000_000)
     throw new HttpError(413, 'Upload is too large.');
   const body: unknown = await req.json();
-  return db().$transaction(
-    async (tx) => {
-      // All project mutations use one database lock: approval, adjustments and configuration cannot race.
-      await tx.$queryRaw`SELECT id FROM "Project" WHERE id = 'tree-project' FOR UPDATE`;
-      const fresh = await tx.user.findUniqueOrThrow({
-        where: { id: user.id },
-        select: publicUser,
-      });
-      if (!fresh.active || fresh.archivedAt || fresh.role !== user.role)
-        throw new HttpError(
-          403,
-          'Your access has changed. Please sign in again.',
-        );
-      if (path === 'submission') {
-        const data = submissionSchema.parse(body);
-        requireThat(
-          data.workDate <= new Date().toISOString().slice(0, 10),
-          'Future-dated progress is not allowed.',
-        );
-        const existing = await tx.dailySubmission.findUnique({
-          where: { requestKey: data.requestKey },
-        });
-        if (existing && !data.id) {
-          requireThat(existing.supervisorId === user.id, 'Duplicate request.');
-          return { id: existing.id };
-        }
-        const core = await records(tx),
-          block = core.blocks.find((b) => b.id === data.blockId),
-          pkg = core.packages.find((p) => p.id === data.packageId);
-        requireThat(block && pkg, 'Select a valid block and work package.');
-        requireThat(
-          new Set(data.items.map((i) => i.activityId)).size ===
-            data.items.length,
-          'Duplicate activity.',
-        );
-        for (const item of data.items) {
-          const activity = pkg.activities.find((a) => a.id === item.activityId);
-          requireThat(
-            activity,
-            'Activity does not belong to this work package.',
-          );
-          requireThat(
-            activity.unit === 'm' || Number.isInteger(item.quantity),
-            'Use whole numbers for trees, rows, posts and milestones.',
-          );
-          if (activity.unit === 'milestone')
-            requireThat(
-              item.quantity === 1,
-              'Milestones must be submitted as one completed item.',
-            );
-        }
-        if (user.role !== 'ADMIN')
-          requireThat(
-            !data.overrideReason,
-            'Only administrators can override readiness.',
-          );
-        checkPlacement(core, block, data.items, user, data.overrideReason);
-        const { items, id, version, ...values } = data;
-        let record;
-        if (id) {
-          const before = await tx.dailySubmission.findUniqueOrThrow({
-            where: { id },
-            include: submissionInclude,
-          });
-          requireThat(
-            before.supervisorId === user.id &&
-              before.status === 'RETURNED' &&
-              before.version === version,
-            'Only your own returned submission can be edited and resubmitted.',
-          );
-          await tx.dailySubmissionItem.deleteMany({
-            where: { submissionId: id },
-          });
-          record = await tx.dailySubmission.update({
-            where: { id },
-            data: {
-              ...values,
-              workDate: new Date(values.workDate),
-              status: 'WAITING',
-              version: { increment: 1 },
-              items: { create: items },
-            },
-          });
-          await audit(tx, user, 'RESUBMIT', 'Submission', id, before, {
-            ...data,
-            status: 'WAITING',
-          });
-        } else {
-          record = await tx.dailySubmission.create({
-            data: {
-              ...values,
-              workDate: new Date(values.workDate),
-              supervisorId: user.id,
-              items: { create: items },
-            },
-          });
-          await audit(
-            tx,
-            user,
-            'SUBMIT',
-            'Submission',
-            record.id,
-            undefined,
-            data,
-          );
-        }
-        return { id: record.id };
-      }
-      if (path === 'photo') {
-        const data = z
-          .object({
-            submissionId: z.string(),
-            name: z.string().max(100),
-            data: z.string().max(7_000_000),
-            mime: z.enum(['image/jpeg', 'image/png', 'image/webp']),
-          })
-          .parse(body);
-        const sub = await tx.dailySubmission.findUniqueOrThrow({
-          where: { id: data.submissionId },
-          include: { photos: { select: { id: true } } },
-        });
-        requireThat(
-          sub.supervisorId === user.id &&
-            ['WAITING', 'RETURNED'].includes(sub.status),
-          'Photos can only be attached to your unapproved submissions.',
-        );
-        requireThat(
-          sub.photos.length < 5,
-          'Maximum five photos per submission.',
-        );
-        let bytes: Uint8Array<ArrayBuffer>;
-        try {
-          bytes = Uint8Array.from(atob(data.data), (c) => c.charCodeAt(0));
-        } catch {
-          throw new HttpError(400, 'Invalid image data.');
-        }
-        requireThat(
-          bytes.length <= 5 * 1024 * 1024,
-          'Each photo must be under 5 MB.',
-        );
-        const valid =
-          data.mime === 'image/png'
-            ? bytes[0] === 137 &&
-              bytes[1] === 80 &&
-              bytes[2] === 78 &&
-              bytes[3] === 71
-            : data.mime === 'image/jpeg'
-              ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
-              : new TextDecoder().decode(bytes.slice(0, 4)) === 'RIFF' &&
-                new TextDecoder().decode(bytes.slice(8, 12)) === 'WEBP';
-        requireThat(
-          valid,
-          'File content does not match the selected image type.',
-        );
-        const photo = await tx.submissionPhoto.create({
-          data: {
-            submissionId: sub.id,
-            name: data.name,
-            mime: data.mime,
-            bytes,
-          },
-        });
-        await audit(
-          tx,
-          user,
-          'PHOTO_ATTACHED',
-          'Submission',
-          sub.id,
-          undefined,
-          { photoId: photo.id, name: data.name },
-        );
-        return { id: photo.id };
-      }
-      admin(user);
-      if (path === 'review') {
-        const data = z
-          .object({
-            id: z.string(),
-            version: z.number().int(),
-            decision: z.enum(['APPROVED', 'RETURNED', 'REJECTED']),
-            comment: z.string().trim().max(2000).default(''),
-            overrideReason: z.string().trim().max(2000).optional(),
-          })
-          .parse(body);
-        const before = await tx.dailySubmission.findUniqueOrThrow({
-          where: { id: data.id },
-          include: submissionInclude,
-        });
-        try {
-          assertReviewable(before.status, before.version, data.version);
-        } catch (e) {
-          throw new HttpError(409, (e as Error).message);
-        }
-        if (data.decision !== 'APPROVED')
-          requireThat(
-            data.comment.length >= 5,
-            'A meaningful review comment is required.',
-          );
-        if (data.decision === 'APPROVED') {
-          const core = await records(tx);
-          const sub = serial<Submission>(before);
-          checkPlacement(
-            core,
-            core.blocks.find((b) => b.id === sub.blockId)!,
-            sub.items.map((i) => ({ ...i, quantity: Number(i.quantity) })),
-            user,
-            data.overrideReason,
-          );
-          validateCandidate(
-            core,
-            core.submissions.map((s) =>
-              s.id === sub.id ? { ...s, status: 'APPROVED' } : s,
-            ),
-            user,
-            data.overrideReason,
-          );
-        }
-        await tx.approval.create({
-          data: {
-            submissionId: data.id,
-            reviewerId: user.id,
-            decision: data.decision,
-            comment: data.comment,
-            version: data.version,
-          },
-        });
-        await tx.dailySubmission.update({
-          where: { id: data.id },
-          data: { status: data.decision },
-        });
-        await audit(
-          tx,
-          user,
-          data.decision,
-          'Submission',
-          data.id,
-          before,
-          data,
-        );
-        return { ok: true };
-      }
-      if (path === 'adjustment') {
-        const data = z
-          .object({
-            requestKey: z.uuid(),
-            itemId: z.string(),
-            quantity: z
-              .number()
-              .min(-1000000)
-              .max(1000000)
-              .multipleOf(0.001)
-              .refine((n) => n !== 0),
-            reason,
-            overrideReason: z.string().trim().max(2000).optional(),
-          })
-          .parse(body);
-        const duplicate = await tx.adjustment.findUnique({
-          where: { requestKey: data.requestKey },
-        });
-        if (duplicate) return { id: duplicate.id };
-        const item = await tx.dailySubmissionItem.findUniqueOrThrow({
-          where: { id: data.itemId },
-          include: { submission: true, activity: true, adjustments: true },
-        });
-        requireThat(
-          item.submission.status === 'APPROVED',
-          'Only approved work may be adjusted.',
-        );
-        requireThat(
-          Number(item.quantity) +
-            item.adjustments.reduce((n, a) => n + Number(a.quantity), 0) +
-            data.quantity >=
-            0,
-          'Adjustment cannot make this item negative.',
-        );
-        requireThat(
-          item.activity.unit === 'm' || Number.isInteger(data.quantity),
-          'Use whole quantities for this activity.',
-        );
-        const core = await records(tx);
-        const beforeBlock = readiness(
-          core.blocks.find((b) => b.id === item.submission.blockId)!,
-          core.submissions,
-        );
-        const candidate = core.submissions.map((s) => ({
-          ...s,
-          items: s.items.map((i) =>
-            i.id === item.id
-              ? {
-                  ...i,
-                  adjustments: [
-                    ...i.adjustments,
-                    {
-                      quantity: data.quantity,
-                      createdAt: new Date().toISOString(),
-                    },
-                  ],
-                }
-              : i,
-          ),
-        }));
-        if (data.quantity > 0)
-          checkPlacement(
-            core,
-            beforeBlock,
-            [{ activityId: item.activityId, quantity: data.quantity }],
-            user,
-            data.overrideReason,
-          );
-        validateCandidate(core, candidate, user, data.overrideReason);
-        const afterBlock = readiness(beforeBlock, candidate);
-        requireThat(
-          !(beforeBlock.ready && !afterBlock.ready && beforeBlock.occupied > 0),
-          'This correction would remove readiness from an occupied block. Place the block on hold and resolve the safety issue first.',
-        );
-        const { overrideReason: _overrideReason, ...entry } = data;
-        const saved = await tx.adjustment.create({
-          data: { ...entry, authorId: user.id },
-        });
-        await audit(tx, user, 'ADJUST', 'SubmissionItem', item.id, item, data);
-        return { id: saved.id };
-      }
-      if (path === 'supervisor') {
-        return manageSupervisor(tx, fresh, body);
-      }
-      if (path === 'block') {
-        const data = z
-          .object({
-            id: z.string(),
-            capacity: z.number().int().nonnegative().nullable(),
-            irrigationTarget: z.number().nonnegative().nullable(),
-            supportRows: z.number().int().nonnegative().nullable(),
-            hold: z.boolean(),
-            reason,
-          })
-          .parse(body);
-        const core = await records(tx),
-          before = core.blocks.find((b) => b.id === data.id);
-        requireThat(before, 'Block not found.');
-        const zone = await tx.zone.findUniqueOrThrow({
-          where: { id: before.zoneId },
-        });
-        const peers = core.blocks.filter((b) => b.id !== data.id);
-        requireThat(
-          peers
-            .filter((b) => b.zoneId === zone.id)
-            .reduce((n, b) => n + (b.capacity || 0), 0) +
-            (data.capacity || 0) <=
-            zone.capacity,
-          'Block allocations exceed the zone capacity.',
-        );
-        requireThat(
-          peers.reduce((n, b) => n + (b.supportRows || 0), 0) +
-            (data.supportRows || 0) <=
-            Number(core.settings.rowTarget),
-          'Row allocations exceed the project baseline.',
-        );
-        requireThat(
-          peers.reduce((n, b) => n + Number(b.irrigationTarget || 0), 0) +
-            Number(data.irrigationTarget || 0) <=
-            Number(core.settings.irrigationTarget),
-          'Irrigation allocations exceed the baseline.',
-        );
-        const occupied = readiness(before, core.submissions).occupied;
-        requireThat(
-          data.capacity == null ? occupied === 0 : data.capacity >= occupied,
-          'Capacity cannot be reduced below occupied capacity.',
-        );
-        const { id, reason: changeReason, ...values } = data;
-        await tx.block.update({ where: { id }, data: values });
-        await audit(tx, user, 'BLOCK_UPDATED', 'Block', id, before, {
-          ...values,
-          reason: changeReason,
-        });
-        return { ok: true };
-      }
-      if (path === 'schedule') {
-        const data = z
-          .object({
-            activities: z
-              .array(z.object({ id: z.string(), start: date, finish: date }))
-              .min(1),
-            reason,
-          })
-          .parse(body);
-        requireThat(
-          new Set(data.activities.map((a) => a.id)).size ===
-            data.activities.length,
-          'Duplicate schedule activity.',
-        );
-        for (const a of data.activities) {
-          requireThat(a.finish >= a.start, 'Finish must not precede start.');
-          await tx.scheduleActivity.upsert({
-            where: { activityId: a.id },
-            create: {
-              activityId: a.id,
-              start: new Date(a.start),
-              finish: new Date(a.finish),
-            },
-            update: { start: new Date(a.start), finish: new Date(a.finish) },
-          });
-        }
-        await audit(
-          tx,
-          user,
-          'SCHEDULE_UPDATED',
-          'Schedule',
-          undefined,
-          undefined,
-          data,
-        );
-        return { ok: true };
-      }
-      if (path === 'activity-weights') {
-        const data = z
-          .object({
-            packageId: z.string(),
-            weights: z.array(
-              z.object({ id: z.string(), weight: z.number().min(0).max(100) }),
-            ),
-            reason,
-          })
-          .parse(body);
-        requireThat(
-          validateWeights(data.weights),
-          'Internal activity weights must total exactly 100%.',
-        );
-        if (data.packageId === 'translocation')
-          requireThat(
-            data.weights.every(
-              (w) => w.weight === (w.id === 'placed' ? 100 : 0),
-            ),
-            'Official translocation progress must remain based only on correctly placed trees.',
-          );
-        const before = await tx.activity.findMany({
-          where: { packageId: data.packageId },
-        });
-        requireThat(
-          before.length === data.weights.length &&
-            new Set(data.weights.map((w) => w.id)).size === before.length &&
-            data.weights.every((w) => before.some((a) => a.id === w.id)),
-          'Include every package activity exactly once.',
-        );
-        for (const w of data.weights)
-          await tx.activity.update({
-            where: { id: w.id },
-            data: { weight: w.weight },
-          });
-        await audit(
-          tx,
-          user,
-          'ACTIVITY_WEIGHTS_UPDATED',
-          'WorkPackage',
+  await activeUser(user);
+
+  if (path === 'submission') {
+    const data = submissionSchema.parse(body);
+    requireThat(
+      data.workDate <= new Date().toISOString().slice(0, 10),
+      'Future-dated progress is not allowed.',
+    );
+    const duplicate = await first<Row>(
+      'SELECT id,supervisor_id AS supervisorId FROM daily_submissions WHERE request_key=?',
+      data.requestKey,
+    );
+    if (duplicate && !data.id) {
+      requireThat(duplicate.supervisorId === user.id, 'Duplicate request.');
+      return { id: String(duplicate.id) };
+    }
+    const core = await loadCore();
+    const block = core.blocks.find((item) => item.id === data.blockId);
+    const workPackage = core.packages.find((item) => item.id === data.packageId);
+    requireThat(block && workPackage, 'Select a valid block and work package.');
+    requireThat(
+      new Set(data.items.map((item) => item.activityId)).size ===
+        data.items.length,
+      'Duplicate activity.',
+    );
+    for (const item of data.items) {
+      const activity = workPackage.activities.find(
+        (candidate) => candidate.id === item.activityId,
+      );
+      requireThat(activity, 'Activity does not belong to this work package.');
+      requireThat(
+        activity.unit === 'm' || Number.isInteger(item.quantity),
+        'Use whole numbers for trees, rows, posts and milestones.',
+      );
+      if (activity.unit === 'milestone')
+        requireThat(item.quantity === 1, 'Milestones must be submitted as one completed item.');
+    }
+    if (user.role !== 'ADMIN')
+      requireThat(!data.overrideReason, 'Only administrators can override readiness.');
+    checkPlacement(core, block, data.items, user, data.overrideReason);
+    const timestamp = now();
+    if (data.id) {
+      const before = core.submissions.find((item) => item.id === data.id);
+      requireThat(
+        before &&
+          before.supervisorId === user.id &&
+          before.status === 'RETURNED' &&
+          before.version === data.version,
+        'Only your own returned submission can be edited and resubmitted.',
+      );
+      await database().batch([
+        statement('DELETE FROM daily_submission_items WHERE submission_id=?', data.id),
+        statement(
+          `UPDATE daily_submissions SET request_key=?,work_date=?,block_id=?,package_id=?,batch_number=?,
+           remarks=?,override_reason=?,status='WAITING',version=version+1,updated_at=?
+           WHERE id=? AND supervisor_id=? AND status='RETURNED' AND version=?`,
+          data.requestKey,
+          data.workDate,
+          data.blockId,
           data.packageId,
-          before.map((a) => ({ id: a.id, weight: a.weight })),
-          data,
-        );
-        return { ok: true };
-      }
-      if (path === 'settings') {
-        const positive = z.number().int().positive();
-        const data = z
-          .object({
-            translocationTarget: positive,
-            newTreeTarget: positive,
-            irrigationTarget: z.number().positive(),
-            rowTarget: positive,
-            postTarget: positive,
-            productivityMin: positive,
-            productivityMax: positive,
-            pendingHours: positive,
-            translocationTargetIsApproximate: z.boolean(),
-            weights: z.array(
-              z.object({ id: z.string(), weight: z.number().min(0).max(100) }),
-            ),
-            reason,
-          })
-          .parse(body);
-        requireThat(
-          validateWeights(data.weights),
-          'Package weights must total exactly 100%.',
-        );
-        requireThat(
-          data.postTarget === data.rowTarget * 5,
-          'Support baseline requires five posts per row.',
-        );
-        requireThat(
-          data.productivityMax >= data.productivityMin,
-          'Productivity maximum must be at least the minimum.',
-        );
-        const core = await records(tx);
-        requireThat(
-          data.weights.length === core.packages.length &&
-            new Set(data.weights.map((w) => w.id)).size ===
-              core.packages.length &&
-            data.weights.every((w) => core.packages.some((p) => p.id === w.id)),
-          'Include each work package once.',
-        );
-        const { weights, reason: changeReason, ...values } = data;
-        const candidate = {
-          ...core,
-          settings: { ...core.settings, ...values },
-        };
-        validateCandidate(candidate, core.submissions, user); // Baselines cannot silently fall below approved quantities.
-        requireThat(
-          core.blocks.reduce(
-            (n, b) => n + Number(b.irrigationTarget || 0),
-            0,
-          ) <= data.irrigationTarget &&
-            core.blocks.reduce((n, b) => n + (b.supportRows || 0), 0) <=
-              data.rowTarget,
-          'Baseline cannot be below allocated block quantities.',
-        );
-        await tx.projectSettings.update({
-          where: { projectId: 'tree-project' },
-          data: values,
-        });
-        for (const w of weights)
-          await tx.workPackage.update({
-            where: { id: w.id },
-            data: { weight: w.weight },
-          });
-        await audit(
-          tx,
-          user,
-          'BASELINE_UPDATED',
-          'Project',
-          'tree-project',
-          {
-            settings: core.settings,
-            weights: core.packages.map((p) => ({ id: p.id, weight: p.weight })),
-          },
-          { ...data, reason: changeReason },
-        );
-        return { ok: true };
-      }
-      if (path === 'inspection') {
-        const data = z
-          .object({
-            number: z.string().trim().min(2).max(80),
-            blockId: z.string(),
-            type: z.enum([
-              'Irrigation',
-              'Support',
-              'Tree health',
-              'New tree acceptance',
-              'Final inspection',
-            ]),
-            inspector: z.string().trim().min(2).max(80),
-            result: z.enum(['PASSED', 'FAILED', 'REINSPECTION']),
-            date,
-            firstAttempt: z.boolean(),
-            remarks: z.string().max(2000),
-            observation: z.string().max(2000).optional(),
-            responsible: z.string().max(80).optional(),
-            dueDate: date.optional(),
-          })
-          .parse(body);
-        requireThat(
-          data.date <= new Date().toISOString().slice(0, 10),
-          'Inspection date cannot be in the future.',
-        );
-        if (data.result !== 'PASSED' || data.observation)
-          requireThat(
-            data.observation && data.responsible && data.dueDate,
-            'Observations require a description, responsible person and due date.',
-          );
-        const { observation, responsible, dueDate, ...values } = data;
-        const saved = await tx.inspection.create({
-          data: {
-            ...values,
-            date: new Date(values.date),
-            ...(observation
-              ? {
-                  observations: {
-                    create: {
-                      description: observation,
-                      responsible: responsible!,
-                      dueDate: new Date(dueDate!),
-                    },
-                  },
-                }
-              : {}),
-          },
-        });
-        await audit(
-          tx,
-          user,
-          'INSPECTION_RECORDED',
-          'Inspection',
-          saved.id,
-          undefined,
-          data,
-        );
-        return { id: saved.id };
-      }
-      if (path === 'close-observation') {
-        const data = z.object({ id: z.string(), reason }).parse(body);
-        const before = await tx.observation.findUniqueOrThrow({
-          where: { id: data.id },
-        });
-        requireThat(!before.closedAt, 'Observation already closed.');
-        await tx.observation.update({
-          where: { id: data.id },
-          data: { closedAt: new Date() },
-        });
-        await audit(
-          tx,
-          user,
-          'OBSERVATION_CLOSED',
-          'Observation',
+          data.batchNumber ?? null,
+          data.remarks,
+          data.overrideReason ?? null,
+          timestamp,
           data.id,
-          before,
-          data,
-        );
-        return { ok: true };
+          user.id,
+          data.version,
+        ),
+        ...data.items.map((item) =>
+          statement(
+            'INSERT INTO daily_submission_items (id,submission_id,activity_id,quantity) VALUES (?,?,?,?)',
+            id(),
+            data.id,
+            item.activityId,
+            item.quantity,
+          ),
+        ),
+        auditStatement(user, 'RESUBMIT', 'Submission', data.id, before, data),
+      ]);
+      return { id: data.id };
+    }
+    const submissionId = id();
+    await database().batch([
+      statement(
+        `INSERT INTO daily_submissions
+        (id,request_key,supervisor_id,work_date,block_id,package_id,batch_number,remarks,override_reason,status,version,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,'WAITING',1,?,?)`,
+        submissionId,
+        data.requestKey,
+        user.id,
+        data.workDate,
+        data.blockId,
+        data.packageId,
+        data.batchNumber ?? null,
+        data.remarks,
+        data.overrideReason ?? null,
+        timestamp,
+        timestamp,
+      ),
+      ...data.items.map((item) =>
+        statement(
+          'INSERT INTO daily_submission_items (id,submission_id,activity_id,quantity) VALUES (?,?,?,?)',
+          id(),
+          submissionId,
+          item.activityId,
+          item.quantity,
+        ),
+      ),
+      auditStatement(user, 'SUBMIT', 'Submission', submissionId, undefined, data),
+    ]);
+    return { id: submissionId };
+  }
+
+  if (path === 'photo')
+    throw new HttpError(
+      503,
+      'Photo storage is temporarily unavailable while external file storage is being connected.',
+    );
+
+  admin(user);
+  if (path === 'review') {
+    const data = z
+      .object({
+        id: z.string(),
+        version: z.number().int(),
+        decision: z.enum(['APPROVED', 'RETURNED', 'REJECTED']),
+        comment: z.string().trim().max(2000).default(''),
+        overrideReason: z.string().trim().max(2000).optional(),
+      })
+      .parse(body);
+    const core = await loadCore();
+    const before = core.submissions.find((item) => item.id === data.id);
+    requireThat(before, 'Submission not found.');
+    try {
+      assertReviewable(before.status, before.version, data.version);
+    } catch (error) {
+      throw new HttpError(409, (error as Error).message);
+    }
+    if (data.decision !== 'APPROVED')
+      requireThat(data.comment.length >= 5, 'A meaningful review comment is required.');
+    if (data.decision === 'APPROVED') {
+      checkPlacement(
+        core,
+        core.blocks.find((item) => item.id === before.blockId)!,
+        before.items,
+        user,
+        data.overrideReason,
+      );
+      validateCandidate(
+        core,
+        core.submissions.map((item) =>
+          item.id === before.id ? { ...item, status: 'APPROVED' } : item,
+        ),
+        user,
+        data.overrideReason,
+      );
+    }
+    const timestamp = now();
+    await database().batch([
+      statement(
+        `INSERT INTO approvals (id,submission_id,reviewer_id,decision,comment,version,created_at)
+         VALUES (?,?,?,?,?,?,?)`,
+        id(),
+        data.id,
+        user.id,
+        data.decision,
+        data.comment,
+        data.version,
+        timestamp,
+      ),
+      statement(
+        'UPDATE daily_submissions SET status=?,updated_at=? WHERE id=? AND status=\'WAITING\' AND version=?',
+        data.decision,
+        timestamp,
+        data.id,
+        data.version,
+      ),
+      auditStatement(user, data.decision, 'Submission', data.id, before, data),
+    ]);
+    return { ok: true };
+  }
+
+  if (path === 'adjustment') {
+    const data = z
+      .object({
+        requestKey: z.uuid(),
+        itemId: z.string(),
+        quantity: z.number().min(-1000000).max(1000000).multipleOf(0.001).refine((value) => value !== 0),
+        reason,
+        overrideReason: z.string().trim().max(2000).optional(),
+      })
+      .parse(body);
+    const duplicate = await first<Row>('SELECT id FROM adjustments WHERE request_key=?', data.requestKey);
+    if (duplicate) return { id: String(duplicate.id) };
+    const core = await loadCore();
+    const submission = core.submissions.find((candidate) =>
+      candidate.items.some((item) => item.id === data.itemId),
+    );
+    const item = submission?.items.find((candidate) => candidate.id === data.itemId);
+    requireThat(submission && item, 'Submission item not found.');
+    requireThat(submission.status === 'APPROVED', 'Only approved work may be adjusted.');
+    requireThat(
+      Number(item.quantity) + item.adjustments.reduce((sum, entry) => sum + Number(entry.quantity), 0) + data.quantity >= 0,
+      'Adjustment cannot make this item negative.',
+    );
+    const activity = core.packages.flatMap((item) => item.activities).find((candidate) => candidate.id === item.activityId)!;
+    requireThat(activity.unit === 'm' || Number.isInteger(data.quantity), 'Use whole quantities for this activity.');
+    const candidate = core.submissions.map((entry) => ({
+      ...entry,
+      items: entry.items.map((value) =>
+        value.id === item.id
+          ? { ...value, adjustments: [...value.adjustments, { quantity: data.quantity, createdAt: now() }] }
+          : value,
+      ),
+    }));
+    const beforeBlock = readiness(
+      core.blocks.find((block) => block.id === submission.blockId)!,
+      core.submissions,
+    );
+    if (data.quantity > 0)
+      checkPlacement(
+        core,
+        beforeBlock,
+        [{ activityId: item.activityId, quantity: data.quantity }],
+        user,
+        data.overrideReason,
+      );
+    validateCandidate(core, candidate, user, data.overrideReason);
+    const afterBlock = readiness(beforeBlock, candidate);
+    requireThat(
+      !(beforeBlock.ready && !afterBlock.ready && beforeBlock.occupied > 0),
+      'This correction would remove readiness from an occupied block. Place the block on hold and resolve the safety issue first.',
+    );
+    const adjustmentId = id();
+    await database().batch([
+      statement(
+        `INSERT INTO adjustments (id,request_key,item_id,author_id,quantity,reason,created_at) VALUES (?,?,?,?,?,?,?)`,
+        adjustmentId,
+        data.requestKey,
+        item.id,
+        user.id,
+        data.quantity,
+        data.reason,
+        now(),
+      ),
+      auditStatement(user, 'ADJUST', 'SubmissionItem', item.id, item, data),
+    ]);
+    return { id: adjustmentId };
+  }
+
+  if (path === 'supervisor') {
+    const data = supervisorAction.parse(body);
+    const targetId = 'id' in data ? data.id : undefined;
+    const before = targetId
+      ? await first<Row>(
+          `SELECT id,name,role,active,archived_at AS archivedAt,created_at AS createdAt,updated_at AS updatedAt FROM users WHERE id=?`,
+          targetId,
+        )
+      : null;
+    if (targetId && !before) throw new HttpError(404, 'Account not found.');
+    if (before?.role === 'ADMIN' && (before.id !== user.id || !['rename', 'pin'].includes(data.action)))
+      throw new HttpError(403, 'Administrator accounts cannot be deactivated or deleted here.');
+    let pinLookup: string | undefined;
+    if ('pin' in data) {
+      pinLookup = await lookup(data.pin);
+      const duplicate = await first<Row>('SELECT id FROM users WHERE pin_lookup=?', pinLookup);
+      if (duplicate && duplicate.id !== targetId)
+        throw new HttpError(409, 'That PIN is already reserved. Choose a different PIN.');
+    }
+    const timestamp = now();
+    let savedId = targetId;
+    let outcome: 'saved' | 'archived' | 'deleted' = 'saved';
+    let action = '';
+    const writes: D1PreparedStatement[] = [];
+    if (data.action === 'create') {
+      savedId = id();
+      writes.push(
+        statement(
+          `INSERT INTO users (id,name,role,pin_lookup,active,created_at,updated_at) VALUES (?,?,'FOREMAN',?,1,?,?)`,
+          savedId,
+          data.name,
+          pinLookup!,
+          timestamp,
+          timestamp,
+        ),
+      );
+      action = 'SUPERVISOR_CREATED';
+    } else if (data.action === 'delete') {
+      const history = await first<Row>(`SELECT 1 AS found WHERE
+        EXISTS (SELECT 1 FROM daily_submissions WHERE supervisor_id=?) OR
+        EXISTS (SELECT 1 FROM approvals WHERE reviewer_id=?) OR
+        EXISTS (SELECT 1 FROM adjustments WHERE author_id=?) OR
+        EXISTS (SELECT 1 FROM audit_logs WHERE user_id=? OR (entity_type='User' AND entity_id=?))`,
+        data.id,data.id,data.id,data.id,data.id);
+      if (history) {
+        writes.push(statement('UPDATE users SET active=0,archived_at=COALESCE(archived_at,?),updated_at=? WHERE id=?', timestamp,timestamp,data.id));
+        outcome = 'archived';
+        action = 'SUPERVISOR_ARCHIVED';
+      } else {
+        writes.push(statement('DELETE FROM users WHERE id=?', data.id));
+        outcome = 'deleted';
+        action = 'SUPERVISOR_DELETED';
       }
-      throw new HttpError(404, 'Unknown action.');
-    },
-    { timeout: 20000 },
-  );
+    } else if (data.action === 'rename') {
+      writes.push(statement('UPDATE users SET name=?,updated_at=? WHERE id=?', data.name,timestamp,data.id));
+      action = 'SUPERVISOR_RENAMED';
+    } else if (data.action === 'pin') {
+      writes.push(statement('UPDATE users SET pin_lookup=?,updated_at=? WHERE id=?', pinLookup!,timestamp,data.id));
+      action = 'USER_PIN_RESERVED';
+    } else {
+      writes.push(statement('UPDATE users SET active=?,archived_at=?,updated_at=? WHERE id=?', Number(data.active),data.active ? null : before!.archivedAt,timestamp,data.id));
+      action = data.active ? 'SUPERVISOR_ACTIVATED' : 'SUPERVISOR_DEACTIVATED';
+    }
+    writes.push(auditStatement(user, action, 'User', savedId, before, { action: data.action, outcome }));
+    await database().batch(writes);
+    return { id: savedId!, outcome };
+  }
+
+  if (path === 'block') {
+    const data = z.object({ id: z.string(), capacity: z.number().int().nonnegative().nullable(), irrigationTarget: z.number().nonnegative().nullable(), supportRows: z.number().int().nonnegative().nullable(), hold: z.boolean(), reason }).parse(body);
+    const core = await loadCore();
+    const before = core.blocks.find((item) => item.id === data.id);
+    requireThat(before, 'Block not found.');
+    const zone = core.zones.find((item) => item.id === before.zoneId)!;
+    const peers = core.blocks.filter((item) => item.id !== data.id);
+    requireThat(peers.filter((item) => item.zoneId === zone.id).reduce((sum, item) => sum + (item.capacity || 0), 0) + (data.capacity || 0) <= zone.capacity, 'Block allocations exceed the zone capacity.');
+    requireThat(peers.reduce((sum, item) => sum + (item.supportRows || 0), 0) + (data.supportRows || 0) <= core.settings.rowTarget, 'Row allocations exceed the project baseline.');
+    requireThat(peers.reduce((sum, item) => sum + Number(item.irrigationTarget || 0), 0) + Number(data.irrigationTarget || 0) <= core.settings.irrigationTarget, 'Irrigation allocations exceed the baseline.');
+    const occupied = readiness(before, core.submissions).occupied;
+    requireThat(data.capacity == null ? occupied === 0 : data.capacity >= occupied, 'Capacity cannot be reduced below occupied capacity.');
+    await database().batch([
+      statement('UPDATE blocks SET capacity=?,irrigation_target=?,support_rows=?,hold=? WHERE id=?', data.capacity,data.irrigationTarget,data.supportRows,Number(data.hold),data.id),
+      auditStatement(user, 'BLOCK_UPDATED', 'Block', data.id, before, data),
+    ]);
+    return { ok: true };
+  }
+
+  if (path === 'schedule') {
+    const data = z.object({ activities: z.array(z.object({ id: z.string(), start: date, finish: date })).min(1), reason }).parse(body);
+    requireThat(new Set(data.activities.map((item) => item.id)).size === data.activities.length, 'Duplicate schedule activity.');
+    for (const activity of data.activities) requireThat(activity.finish >= activity.start, 'Finish must not precede start.');
+    await database().batch([
+      ...data.activities.map((activity) => statement(`INSERT INTO schedule_activities (activity_id,start,finish) VALUES (?,?,?) ON CONFLICT(activity_id) DO UPDATE SET start=excluded.start,finish=excluded.finish`, activity.id,activity.start,activity.finish)),
+      auditStatement(user, 'SCHEDULE_UPDATED', 'Schedule', undefined, undefined, data),
+    ]);
+    return { ok: true };
+  }
+
+  if (path === 'activity-weights') {
+    const data = z.object({ packageId: z.string(), weights: z.array(z.object({ id: z.string(), weight: z.number().min(0).max(100) })), reason }).parse(body);
+    requireThat(validateWeights(data.weights), 'Internal activity weights must total exactly 100%.');
+    if (data.packageId === 'translocation') requireThat(data.weights.every((item) => item.weight === (item.id === 'placed' ? 100 : 0)), 'Official translocation progress must remain based only on correctly placed trees.');
+    const core = await loadCore();
+    const before = core.packages.find((item) => item.id === data.packageId)?.activities || [];
+    requireThat(before.length === data.weights.length && data.weights.every((item) => before.some((activity) => activity.id === item.id)), 'Include every package activity exactly once.');
+    await database().batch([
+      ...data.weights.map((item) => statement('UPDATE activities SET weight=? WHERE id=? AND package_id=?', item.weight,item.id,data.packageId)),
+      auditStatement(user, 'ACTIVITY_WEIGHTS_UPDATED', 'WorkPackage', data.packageId, before, data),
+    ]);
+    return { ok: true };
+  }
+
+  if (path === 'settings') {
+    const positive = z.number().int().positive();
+    const data = z.object({ translocationTarget: positive, newTreeTarget: positive, irrigationTarget: z.number().positive(), rowTarget: positive, postTarget: positive, productivityMin: positive, productivityMax: positive, pendingHours: positive, translocationTargetIsApproximate: z.boolean(), weights: z.array(z.object({ id: z.string(), weight: z.number().min(0).max(100) })), reason }).parse(body);
+    requireThat(validateWeights(data.weights), 'Package weights must total exactly 100%.');
+    requireThat(data.postTarget === data.rowTarget * 5, 'Support baseline requires five posts per row.');
+    requireThat(data.productivityMax >= data.productivityMin, 'Productivity maximum must be at least the minimum.');
+    const core = await loadCore();
+    requireThat(data.weights.length === core.packages.length && data.weights.every((item) => core.packages.some((workPackage) => workPackage.id === item.id)), 'Include each work package once.');
+    validateCandidate(core, core.submissions, user);
+    requireThat(core.blocks.reduce((sum, item) => sum + Number(item.irrigationTarget || 0), 0) <= data.irrigationTarget && core.blocks.reduce((sum, item) => sum + (item.supportRows || 0), 0) <= data.rowTarget, 'Baseline cannot be below allocated block quantities.');
+    await database().batch([
+      statement(`UPDATE project_settings SET translocation_target=?,translocation_target_is_approximate=?,new_tree_target=?,irrigation_target=?,row_target=?,post_target=?,productivity_min=?,productivity_max=?,pending_hours=?,updated_at=? WHERE project_id='tree-project'`, data.translocationTarget,Number(data.translocationTargetIsApproximate),data.newTreeTarget,data.irrigationTarget,data.rowTarget,data.postTarget,data.productivityMin,data.productivityMax,data.pendingHours,now()),
+      ...data.weights.map((item) => statement('UPDATE work_packages SET weight=? WHERE id=?', item.weight,item.id)),
+      auditStatement(user, 'BASELINE_UPDATED', 'Project', 'tree-project', core.settings, data),
+    ]);
+    return { ok: true };
+  }
+
+  if (path === 'inspection') {
+    const data = z.object({ number: z.string().trim().min(2).max(80), blockId: z.string(), type: z.enum(['Irrigation','Support','Tree health','New tree acceptance','Final inspection']), inspector: z.string().trim().min(2).max(80), result: z.enum(['PASSED','FAILED','REINSPECTION']), date, firstAttempt: z.boolean(), remarks: z.string().max(2000), observation: z.string().max(2000).optional(), responsible: z.string().max(80).optional(), dueDate: date.optional() }).parse(body);
+    requireThat(data.date <= new Date().toISOString().slice(0, 10), 'Inspection date cannot be in the future.');
+    if (data.result !== 'PASSED' || data.observation) requireThat(data.observation && data.responsible && data.dueDate, 'Observations require a description, responsible person and due date.');
+    const inspectionId = id();
+    const timestamp = now();
+    const writes = [statement(`INSERT INTO inspections (id,number,block_id,type,inspector,result,date,remarks,first_attempt,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`, inspectionId,data.number,data.blockId,data.type,data.inspector,data.result,data.date,data.remarks,Number(data.firstAttempt),timestamp)];
+    if (data.observation) writes.push(statement(`INSERT INTO observations (id,inspection_id,description,responsible,due_date,created_at) VALUES (?,?,?,?,?,?)`, id(),inspectionId,data.observation,data.responsible!,data.dueDate!,timestamp));
+    writes.push(auditStatement(user, 'INSPECTION_RECORDED', 'Inspection', inspectionId, undefined, data));
+    await database().batch(writes);
+    return { id: inspectionId };
+  }
+
+  if (path === 'close-observation') {
+    const data = z.object({ id: z.string(), reason }).parse(body);
+    const before = await first<Row>('SELECT id,closed_at AS closedAt FROM observations WHERE id=?', data.id);
+    requireThat(before && !before.closedAt, 'Observation already closed or not found.');
+    await database().batch([
+      statement('UPDATE observations SET closed_at=? WHERE id=? AND closed_at IS NULL', now(),data.id),
+      auditStatement(user, 'OBSERVATION_CLOSED', 'Observation', data.id, before, data),
+    ]);
+    return { ok: true };
+  }
+
+  throw new HttpError(404, 'Unknown action.');
 }

@@ -30,6 +30,7 @@ type Props = {
   query: string;
   refresh: () => Promise<void>;
   preview: boolean;
+  detailLoading?: boolean;
 };
 type Edit = {
   title: string;
@@ -553,7 +554,8 @@ export function DataPages(props: Props) {
     );
   } else if (view === 'quality')
     content = <Quality {...props} setEdit={setEdit} />;
-  else if (view === 'audit') content = <Audit state={state} />;
+  else if (view === 'audit')
+    content = <Audit state={state} loading={Boolean(props.detailLoading)} />;
   else
     content = (
       <div className="card empty-note">
@@ -1397,7 +1399,7 @@ function Quality({
     </>
   );
 }
-function Audit({ state }: { state: State }) {
+function Audit({ state, loading }: { state: State; loading: boolean }) {
   const [query, setQuery] = useState(''),
     [page, setPage] = useState(0),
     [detail, setDetail] =
@@ -1426,6 +1428,11 @@ function Audit({ state }: { state: State }) {
           }}
         />
       </div>
+      {loading && !state.audit ? (
+        <div className="empty-note" aria-live="polite">
+          Loading recent audit history in the background…
+        </div>
+      ) : (
       <table className="responsive-table">
         <thead>
           <tr>
@@ -1460,7 +1467,8 @@ function Audit({ state }: { state: State }) {
           ))}
         </tbody>
       </table>
-      {!filtered.length && (
+      )}
+      {!loading && !filtered.length && (
         <div className="empty-note">No matching audit events.</div>
       )}
       <div className="pagination">
