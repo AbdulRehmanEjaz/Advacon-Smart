@@ -264,7 +264,35 @@ function AdminDashboard({
         />
         <ProgressGauge value={calculated.overall} />
       </div>
-      <div className="dashboard-grid">
+      <section
+        className="main-activity-dashboard"
+        aria-labelledby="main-activity-progress"
+      >
+        <div className="card-heading">
+          <div>
+            <h2 className="card-title" id="main-activity-progress">
+              Main Activity Progress
+            </h2>
+            <p className="card-subtitle">
+              Approved completion across all seven main activities
+            </p>
+          </div>
+        </div>
+        <div className="mini-grid approved-groups">
+          {calculated.groups.map((group) => (
+            <div className="mini-kpi" key={group.id}>
+              <span>{group.name}</span>
+              <strong>{group.progress.toFixed(2)}%</strong>
+              <div className="progress-track">
+                <span style={{ width: `${group.progress}%` }} />
+              </div>
+              <small>
+                {group.earned.toFixed(2)}% earned · {group.weight}% weight
+              </small>
+            </div>
+          ))}
+        </div>
+      </section>
         <article className="card analytics">
           <div className="card-heading">
             <div>
@@ -359,35 +387,16 @@ function AdminDashboard({
             </span>
           </div>
         </article>
-        <section
-          className="main-activity-dashboard"
-          aria-labelledby="main-activity-progress"
-        >
+        <article className="card activity-card">
           <div className="card-heading">
-            <div>
-              <h2 className="card-title" id="main-activity-progress">
-                Main Activity Progress
-              </h2>
-              <p className="card-subtitle">
-                Approved completion across all seven main activities
-              </p>
-            </div>
+            <h2 className="card-title">Recent Site Activity</h2>
+            <a href={href('daily')} className="text-button">
+              View all <ArrowUpRight size={12} />
+            </a>
           </div>
-          <div className="mini-grid approved-groups">
-            {calculated.groups.map((group) => (
-              <div className="mini-kpi" key={group.id}>
-                <span>{group.name}</span>
-                <strong>{group.progress.toFixed(2)}%</strong>
-                <div className="progress-track">
-                  <span style={{ width: `${group.progress}%` }} />
-                </div>
-                <small>
-                  {group.earned.toFixed(2)}% earned · {group.weight}% weight
-                </small>
-              </div>
-            ))}
-          </div>
-        </section>
+          <ActivityList state={state} />
+        </article>
+      <div className="dashboard-support-grid">
         <article className="card packages-card">
           <div className="card-heading">
             <h2 className="card-title">Work Packages</h2>
@@ -469,15 +478,6 @@ function AdminDashboard({
               Review Approvals
             </a>
           </div>
-        </article>
-        <article className="card activity-card">
-          <div className="card-heading">
-            <h2 className="card-title">Recent Site Activity</h2>
-            <a href={href('daily')} className="text-button">
-              View all <ArrowUpRight size={12} />
-            </a>
-          </div>
-          <ActivityList state={state} />
         </article>
         <article className="card readiness-card">
           <div className="card-heading">

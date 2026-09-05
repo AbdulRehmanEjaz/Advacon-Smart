@@ -668,24 +668,26 @@ h1 {
   font-size: 9px;
   color: #819087;
 }
-.dashboard-grid {
+.dashboard-support-grid {
   display: grid;
-  grid-template-columns: 1.7fr 1.12fr 1fr;
+  grid-template-columns: minmax(220px, 1fr) minmax(420px, 1.7fr) minmax(210px, 0.8fr);
   gap: 14px;
+  align-items: start;
 }
 .analytics {
-  grid-column: 1/3;
+  margin-bottom: 14px;
 }
 .main-activity-dashboard {
-  grid-column: 1/3;
   min-width: 0;
+  height: auto;
+  min-height: 0;
+  margin-bottom: 14px;
 }
-.packages-card {
-  grid-column: 3;
-  grid-row: 1/3;
+.main-activity-dashboard .mini-grid {
+  margin-bottom: 0;
 }
 .activity-card {
-  grid-column: 1;
+  margin-bottom: 14px;
 }
 .gauge-card {
   grid-column: 2;
@@ -704,11 +706,8 @@ h1 {
 .gauge-compact .gauge-number strong {
   font-size: 23px;
 }
-.productivity-card {
-  grid-column: 3;
-}
 .readiness-card {
-  grid-column: 1/3;
+  min-width: 0;
 }
 .card-heading {
   display: flex;
@@ -1258,28 +1257,11 @@ td small {
   .mini-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
-  .dashboard-grid {
-    grid-template-columns: 1.4fr 1fr;
+  .dashboard-support-grid {
+    grid-template-columns: 1fr 1fr;
   }
-  .analytics {
+  .dashboard-support-grid .readiness-card {
     grid-column: 1/3;
-  }
-  .main-activity-dashboard {
-    grid-column: 1;
-  }
-  .packages-card {
-    grid-column: 2;
-    grid-row: 2/4;
-  }
-  .activity-card,
-  .gauge-card {
-    grid-column: 1;
-  }
-  .readiness-card {
-    grid-column: 1;
-  }
-  .productivity-card {
-    grid-column: 2;
   }
   .blocks-grid {
     grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1402,7 +1384,7 @@ td small {
   .mini-kpi:last-child {
     grid-column: 1/3;
   }
-  .dashboard-grid,
+  .dashboard-support-grid,
   .two-columns {
     display: flex;
     flex-direction: column;

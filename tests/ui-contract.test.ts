@@ -22,11 +22,21 @@ await test('detailed KPI register lives only on its dedicated fast workspace vie
   assert.doesNotMatch(dashboard, /className="card kpi-detail-card"/);
   assert.match(dashboard, /href=\{href\('kpi-progress'\)\}/);
   assert.match(dashboard, /aria-label=\{arrowLabel/);
-  assert.ok(dashboard.indexOf('Project Analytics') < dashboard.indexOf('Main Activity Progress'));
+  const mainActivity = dashboard.indexOf('Main Activity Progress');
+  const analytics = dashboard.indexOf('Project Analytics');
+  const recent = dashboard.indexOf('Recent Site Activity');
+  assert.ok(mainActivity >= 0 && mainActivity < analytics && analytics < recent);
   assert.match(page, /Approved KPI Progress/);
   assert.match(page, /Official/);
   assert.match(page, /KPI \/ Sub-Activity/);
   assert.match(dataPages, /view === 'kpi-progress'/);
+});
+
+await test('dashboard sections use natural flow without reserved grid rows', async () => {
+  const styles = await readFile(new URL('../app/globals.css', import.meta.url), 'utf8');
+  assert.match(styles, /\.main-activity-dashboard\s*\{[^}]*height:\s*auto;[^}]*min-height:\s*0;/);
+  assert.doesNotMatch(styles, /\.packages-card\s*\{[^}]*grid-row:/);
+  assert.match(styles, /\.dashboard-support-grid\s*\{[^}]*align-items:\s*start;/);
 });
 
 await test('new progress form has no active batch or photo controls', async () => {
