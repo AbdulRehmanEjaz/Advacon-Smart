@@ -41,19 +41,33 @@ export function Kpi({
   value,
   footer,
   featured = false,
+  href,
+  arrowLabel,
 }: {
   title: string;
   value: string;
   footer: string;
   featured?: boolean;
+  href?: string;
+  arrowLabel?: string;
 }) {
   return (
     <article className={`card kpi ${featured ? 'featured' : ''}`}>
       <div className="kpi-head">
         <span>{title}</span>
-        <span className="round-arrow">
-          <ArrowUpRight />
-        </span>
+        {href ? (
+          <a
+            className="round-arrow"
+            href={href}
+            aria-label={arrowLabel || `Open ${title}`}
+          >
+            <ArrowUpRight />
+          </a>
+        ) : (
+          <span className="round-arrow" aria-hidden="true">
+            <ArrowUpRight />
+          </span>
+        )}
       </div>
       <div className="kpi-value">{value}</div>
       <small>{footer}</small>
@@ -235,6 +249,8 @@ function AdminDashboard({
           value={`${calculated.overall.toFixed(2)}%`}
           footer="Actual physical completion"
           featured
+          href={href('kpi-progress')}
+          arrowLabel="Open Approved KPI Progress"
         />
         <Kpi
           title="Remaining Progress"
@@ -248,43 +264,6 @@ function AdminDashboard({
         />
         <ProgressGauge value={calculated.overall} />
       </div>
-      <div className="mini-grid approved-groups">
-        {calculated.groups.map((group) => (
-          <div className="mini-kpi" key={group.id}>
-            <span>{group.name}</span>
-            <strong>{group.progress.toFixed(2)}%</strong>
-            <div className="progress-track"><span style={{ width: `${group.progress}%` }} /></div>
-            <small>{group.earned.toFixed(2)}% earned · {group.weight}% weight</small>
-          </div>
-        ))}
-      </div>
-      <article className="card kpi-detail-card">
-        <div className="card-heading">
-          <div><h2 className="card-title">Approved KPI Progress</h2><p className="card-subtitle">Opening balance plus approved submissions and adjustments</p></div>
-          <span className="badge approved">Official</span>
-        </div>
-        <div className="table-scroll">
-          <table className="responsive-table">
-            <thead><tr><th>KPI</th><th>Target</th><th>Progress</th><th>Remaining</th><th>Weight</th><th>Completion</th><th>Earned</th></tr></thead>
-            <tbody>
-              {calculated.groups.flatMap((group) => [
-                <tr className="kpi-group-row" key={`group-${group.id}`}><td colSpan={7}><strong>{group.name}</strong> · {group.progress.toFixed(2)}% complete</td></tr>,
-                ...group.activities.map((activity) => (
-                  <tr key={activity.id}>
-                    <td data-label="KPI">{activity.name}</td>
-                    <td data-label="Target">{activity.id === 'kpi-final-handover' ? 'Completed' : `${number(activity.target)} ${activity.unit}`}</td>
-                    <td data-label="Progress">{activity.id === 'kpi-final-handover' ? (activity.quantity >= 1 ? 'Completed' : 'Not Completed') : number(activity.quantity)}</td>
-                    <td data-label="Remaining">{activity.id === 'kpi-final-handover' ? (activity.remaining === 0 ? 'Completed' : 'Not Completed') : number(activity.remaining)}</td>
-                    <td data-label="Weight">{activity.weight.toFixed(2)}%</td>
-                    <td data-label="Completion">{activity.completion.toFixed(2)}%</td>
-                    <td data-label="Earned">{activity.earned.toFixed(4)}%</td>
-                  </tr>
-                )),
-              ])}
-            </tbody>
-          </table>
-        </div>
-      </article>
       <div className="dashboard-grid">
         <article className="card analytics">
           <div className="card-heading">
@@ -380,6 +359,35 @@ function AdminDashboard({
             </span>
           </div>
         </article>
+        <section
+          className="main-activity-dashboard"
+          aria-labelledby="main-activity-progress"
+        >
+          <div className="card-heading">
+            <div>
+              <h2 className="card-title" id="main-activity-progress">
+                Main Activity Progress
+              </h2>
+              <p className="card-subtitle">
+                Approved completion across all seven main activities
+              </p>
+            </div>
+          </div>
+          <div className="mini-grid approved-groups">
+            {calculated.groups.map((group) => (
+              <div className="mini-kpi" key={group.id}>
+                <span>{group.name}</span>
+                <strong>{group.progress.toFixed(2)}%</strong>
+                <div className="progress-track">
+                  <span style={{ width: `${group.progress}%` }} />
+                </div>
+                <small>
+                  {group.earned.toFixed(2)}% earned · {group.weight}% weight
+                </small>
+              </div>
+            ))}
+          </div>
+        </section>
         <article className="card packages-card">
           <div className="card-heading">
             <h2 className="card-title">Work Packages</h2>

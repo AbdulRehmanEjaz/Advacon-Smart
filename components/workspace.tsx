@@ -4,6 +4,7 @@ import Link from 'next/link';
 import {
   TreePine,
   LayoutDashboard,
+  ListChecks,
   ClipboardCheck,
   CalendarDays,
   Grid2X2,
@@ -41,6 +42,7 @@ const navigation: {
     group: 'PROJECT',
     items: [
       ['dashboard', 'Dashboard', LayoutDashboard],
+      ['kpi-progress', 'Approved KPI Progress', ListChecks],
       ['approvals', 'Waiting for Approval', ClipboardCheck],
       ['daily', 'Daily Progress', CalendarDays],
       ['blocks', 'Block Readiness', Grid2X2],

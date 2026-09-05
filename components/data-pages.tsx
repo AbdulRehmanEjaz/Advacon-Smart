@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Badge, Kpi } from './dashboard';
 import { Editor, type Field, Modal, ProgressForm } from './progress-form';
 import { Supervisors } from './supervisors';
+import { ApprovedKpiProgress } from './approved-kpi-progress';
 import {
   approvedTotals,
   calculateKpiProgress,
@@ -56,6 +57,8 @@ export function DataPages(props: Props) {
   let content;
   if (['approvals', 'daily', 'search'].includes(view))
     content = <Submissions {...props} />;
+  else if (view === 'kpi-progress')
+    content = <ApprovedKpiProgress state={state} />;
   else if (view === 'reports')
     content = <OfficialReport state={state} />;
   else if (view === 'cost-control' || view === 'timesheet')
