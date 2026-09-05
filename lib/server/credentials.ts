@@ -1,7 +1,6 @@
 import { lookup } from './legacy-credentials';
 
 const encoder = new TextEncoder();
-const ITERATIONS = 120_000;
 
 function secret() {
   const value = process.env.SESSION_SECRET;
@@ -19,24 +18,19 @@ function fromBase64(value: string) {
   return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
 }
 
-async function derive(pin: string, salt: Uint8Array) {
-  const material = await crypto.subtle.importKey(
+async function credentialHash(pin: string, encodedSalt: string) {
+  const key = await crypto.subtle.importKey(
     'raw',
-    encoder.encode(`${pin}\0${secret()}`),
-    'PBKDF2',
+    encoder.encode(secret()),
+    { name: 'HMAC', hash: 'SHA-256' },
     false,
-    ['deriveBits'],
+    ['sign'],
   );
   return new Uint8Array(
-    await crypto.subtle.deriveBits(
-      {
-        name: 'PBKDF2',
-        hash: 'SHA-256',
-        salt: Uint8Array.from(salt).buffer,
-        iterations: ITERATIONS,
-      },
-      material,
-      256,
+    await crypto.subtle.sign(
+      'HMAC',
+      key,
+      encoder.encode(`pin-credential:v1:${encodedSalt}:${pin}`),
     ),
   );
 }
@@ -44,10 +38,11 @@ async function derive(pin: string, salt: Uint8Array) {
 export async function createCredential(pin: string) {
   if (!/^\d{3}$/.test(pin)) throw Error('INVALID_PIN');
   const salt = crypto.getRandomValues(new Uint8Array(16));
+  const pinSalt = toBase64(salt);
   return {
     pinLookup: await lookup(pin),
-    pinSalt: toBase64(salt),
-    pinHash: toBase64(await derive(pin, salt)),
+    pinSalt,
+    pinHash: toBase64(await credentialHash(pin, pinSalt)),
   };
 }
 
@@ -58,7 +53,7 @@ export async function verifyCredential(
 ) {
   if (!/^\d{3}$/.test(pin)) return false;
   const expected = fromBase64(pinHash);
-  const actual = await derive(pin, fromBase64(pinSalt));
+  const actual = await credentialHash(pin, pinSalt);
   let difference = expected.length ^ actual.length;
   const length = Math.max(expected.length, actual.length);
   for (let index = 0; index < length; index += 1)

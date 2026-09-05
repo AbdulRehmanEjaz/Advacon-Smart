@@ -151,6 +151,8 @@ try {
   await d1.prepare("DELETE FROM daily_submissions WHERE id='migration-preservation'").run();
   await d1.exec(baselineSql('2026-09-03T00:00:00.000Z'));
   await d1.exec(baselineSql('2026-09-03T00:00:00.000Z'));
+  await d1.prepare("UPDATE users SET pin_salt='cGFydGlhbA==',pin_hash=NULL WHERE id='initial-admin'").run();
+  await d1.prepare("UPDATE users SET pin_salt=NULL,pin_hash='cGFydGlhbA==' WHERE id='initial-foreman'").run();
 
   const fetcher = worker.dispatchFetch.bind(worker) as unknown as typeof fetch;
   assert.equal((await fetcher(origin + '/')).status, 200);

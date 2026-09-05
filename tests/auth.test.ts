@@ -12,6 +12,7 @@ await test('per-user PIN credentials are salted, verifiable and never plaintext'
   assert.notEqual(first.pinHash, second.pinHash);
   assert.equal(first.pinLookup, second.pinLookup);
   assert.equal(first.pinHash.includes('090'), false);
+  assert.equal(first.pinSalt.includes('090'), false);
   assert.equal(await verifyCredential('090', first.pinSalt, first.pinHash), true);
   assert.equal(await verifyCredential('111', first.pinSalt, first.pinHash), false);
 });
@@ -23,4 +24,13 @@ await test('auth contract keeps private cookies, strict origins and credential v
   assert.match(source, /credentialVersion/);
   assert.match(source, /row\.credentialVersion\) !== claims\.credentialVersion/);
   assert.doesNotMatch(source, /DATABASE_URL|Prisma|localStorage/);
+  assert.match(source, /AUTH_BOOTSTRAP_CREDENTIAL_FAILED/);
+  assert.match(source, /AUTH_SESSION_CREATE_FAILED/);
+});
+
+await test('credential path uses Worker-safe HMAC and contains no PBKDF2', async () => {
+  const source = await readFile(new URL('../lib/server/credentials.ts', import.meta.url), 'utf8');
+  assert.match(source, /pin-credential:v1/);
+  assert.match(source, /HMAC/);
+  assert.doesNotMatch(source, /PBKDF2|deriveBits/);
 });

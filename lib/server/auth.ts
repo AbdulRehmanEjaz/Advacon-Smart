@@ -8,6 +8,31 @@ const MAX_ATTEMPTS = 5;
 const WINDOW_MS = 10 * 60 * 1000;
 const BLOCK_MS = 15 * 60 * 1000;
 
+function authDiagnostic(code: string, error: unknown) {
+  const name = error instanceof Error ? error.name : 'UnknownError';
+  let message = error instanceof Error ? error.message : 'Unknown authentication failure';
+  for (const value of [
+    process.env.SESSION_SECRET,
+    process.env.ADMIN_PIN,
+    process.env.SUPERVISOR_PIN,
+  ])
+    if (value) message = message.replaceAll(value, '[redacted]');
+  message = message
+    .replace(/\b\d{3}\b/g, '[redacted]')
+    .replace(/[\r\n]+/g, ' ')
+    .slice(0, 180);
+  console.error(code, name, message);
+}
+
+async function authStage<T>(code: string, action: () => Promise<T>) {
+  try {
+    return await action();
+  } catch (error) {
+    authDiagnostic(code, error);
+    throw error;
+  }
+}
+
 export class HttpError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -211,10 +236,14 @@ async function failure(identifier: string) {
 }
 
 export async function login(pin: string, clientIdentifier = 'unknown') {
-  const rateKey = await lookup(`login:${clientIdentifier}`);
-  const attempt = await first<{ blockedUntil: string | null }>(
-    'SELECT blocked_until AS blockedUntil FROM login_attempts WHERE identifier=?',
-    rateKey,
+  const rateKey = await authStage('AUTH_LOGIN_LOOKUP_FAILED', () =>
+    lookup(`login:${clientIdentifier}`),
+  );
+  const attempt = await authStage('AUTH_LOGIN_LOOKUP_FAILED', () =>
+    first<{ blockedUntil: string | null }>(
+      'SELECT blocked_until AS blockedUntil FROM login_attempts WHERE identifier=?',
+      rateKey,
+    ),
   );
   if (attempt?.blockedUntil && new Date(attempt.blockedUntil).getTime() > Date.now())
     return { error: true as const, throttled: true as const };
@@ -222,11 +251,15 @@ export async function login(pin: string, clientIdentifier = 'unknown') {
     await failure(rateKey);
     return { error: true as const };
   }
-  const pinLookup = await lookup(pin);
-  let row = await first<UserRow>(userSelect('pin_lookup=?'), pinLookup);
+  const pinLookup = await authStage('AUTH_LOGIN_LOOKUP_FAILED', () => lookup(pin));
+  let row = await authStage('AUTH_LOGIN_LOOKUP_FAILED', () =>
+    first<UserRow>(userSelect('pin_lookup=?'), pinLookup),
+  );
   let valid = Boolean(
     row?.pinSalt && row.pinHash &&
-    await verifyCredential(pin, row.pinSalt, row.pinHash),
+    await authStage('AUTH_CREDENTIAL_VERIFY_FAILED', () =>
+      verifyCredential(pin, row!.pinSalt!, row!.pinHash!),
+    ),
   );
 
   if (!valid) {
@@ -239,20 +272,35 @@ export async function login(pin: string, clientIdentifier = 'unknown') {
         constantTimeEqual(pin, candidate.pin),
     );
     if (legacy) {
-      const bootstrap = await first<UserRow>(userSelect('id=?'), legacy.id);
-      if (bootstrap && !bootstrap.pinHash) {
-        const credential = await createCredential(pin);
-        await statement(
-          `UPDATE users SET pin_lookup=?,pin_salt=?,pin_hash=?,
-           credential_version=credential_version+1,updated_at=? WHERE id=? AND pin_hash IS NULL`,
-          credential.pinLookup,
-          credential.pinSalt,
-          credential.pinHash,
-          now(),
-          bootstrap.id,
-        ).run();
-        row = await first<UserRow>(userSelect('id=?'), bootstrap.id);
-        valid = Boolean(row?.pinHash);
+      const bootstrap = await authStage('AUTH_LOGIN_LOOKUP_FAILED', () =>
+        first<UserRow>(userSelect('id=?'), legacy.id),
+      );
+      if (bootstrap && (!bootstrap.pinSalt || !bootstrap.pinHash)) {
+        const credential = await authStage(
+          'AUTH_BOOTSTRAP_CREDENTIAL_FAILED',
+          () => createCredential(pin),
+        );
+        await authStage('AUTH_BOOTSTRAP_CREDENTIAL_FAILED', () =>
+          statement(
+            `UPDATE users SET pin_lookup=?,pin_salt=?,pin_hash=?,
+             credential_version=credential_version+1,updated_at=?
+             WHERE id=? AND (pin_salt IS NULL OR pin_hash IS NULL)`,
+            credential.pinLookup,
+            credential.pinSalt,
+            credential.pinHash,
+            now(),
+            bootstrap.id,
+          ).run(),
+        );
+        row = await authStage('AUTH_LOGIN_LOOKUP_FAILED', () =>
+          first<UserRow>(userSelect('id=?'), bootstrap.id),
+        );
+        valid = Boolean(
+          row?.pinSalt && row.pinHash &&
+          await authStage('AUTH_CREDENTIAL_VERIFY_FAILED', () =>
+            verifyCredential(pin, row!.pinSalt!, row!.pinHash!),
+          ),
+        );
       }
     }
   }
@@ -270,7 +318,9 @@ export async function login(pin: string, clientIdentifier = 'unknown') {
   const user = actorFromRow(row);
   return {
     error: false as const,
-    token: await createSessionToken(user),
+    token: await authStage('AUTH_SESSION_CREATE_FAILED', () =>
+      createSessionToken(user),
+    ),
     user,
   };
 }
