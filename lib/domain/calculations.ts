@@ -24,7 +24,7 @@ export type Submission = {
   status: string;
   workDate: string;
   createdAt: string;
-  blockId: string;
+  blockId: string | null;
   packageId: string;
   version: number;
   batchNumber?: string | null;

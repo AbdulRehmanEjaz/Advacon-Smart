@@ -392,8 +392,8 @@ button:disabled {
   border-radius: 4px;
 }
 .sidebar-foot {
-  margin-top: auto;
-  padding: 28px 8px 0;
+  margin-top: 8px;
+  padding: 12px 8px 0;
 }
 .site-note {
   border-radius: 14px;
@@ -674,6 +674,20 @@ h1 {
 }
 .gauge-card {
   grid-column: 2;
+}
+.kpi-grid .gauge-compact {
+  grid-column: auto;
+  padding: 14px 18px;
+}
+.gauge-compact .gauge-wrap {
+  max-width: 150px;
+  margin: 2px auto 0;
+}
+.gauge-compact .gauge-number {
+  bottom: 2px;
+}
+.gauge-compact .gauge-number strong {
+  font-size: 23px;
 }
 .productivity-card {
   grid-column: 3;

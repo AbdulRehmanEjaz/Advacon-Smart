@@ -23,7 +23,7 @@ import {
   targetFor,
   type Submission,
 } from '@/lib/domain/calculations';
-import { type State, number, today, post, uploadPhoto } from '@/lib/types';
+import { type State, number, today, post } from '@/lib/types';
 type Props = {
   state: State;
   view: string;
@@ -58,6 +58,15 @@ export function DataPages(props: Props) {
     content = <Submissions {...props} />;
   else if (view === 'reports')
     content = <OfficialReport state={state} />;
+  else if (view === 'cost-control' || view === 'timesheet')
+    content = (
+      <section className="card empty-note">
+        <h2 className="card-title">
+          {view === 'cost-control' ? 'Cost Control' : 'Timesheet'}
+        </h2>
+        <p>Module configuration will be added in the next phase.</p>
+      </section>
+    );
   else if (view === 'blocks')
     content = (
       <>
@@ -489,7 +498,7 @@ function Submissions({
       (view !== 'approvals' || s.status === 'WAITING') &&
       (!fixedPackage || s.packageId === fixedPackage) &&
       (!status || s.status === status) &&
-      (!zone || s.blockId.startsWith(zone)) &&
+      (!zone || s.blockId?.startsWith(zone)) &&
       (!block || s.blockId === block) &&
       (!supervisor || s.supervisorId === supervisor) &&
       (!pkg || s.packageId === pkg) &&
@@ -539,8 +548,8 @@ function Submissions({
             s.id,
             s.workDate.slice(0, 10),
             s.supervisor.name,
-            s.blockId[0],
-            s.blockId,
+            s.blockId?.[0] || '',
+            s.blockId || '',
             state.packages.find((p) => p.id === s.packageId)?.name,
             s.status,
             activity?.name,
@@ -588,6 +597,10 @@ function Submissions({
           </div>
           {view === 'reports' && (
             <div className="heading-actions">
+              <a className="secondary" href="/api/report.pdf" download>
+                <ArrowDownToLine size={13} />
+                PDF
+              </a>
               <button className="secondary" onClick={csv}>
                 <ArrowDownToLine size={13} />
                 CSV
@@ -706,7 +719,7 @@ function Submissions({
                   <small>{s.id.slice(-8).toUpperCase()}</small>
                 </td>
                 <td data-label="Work date">{s.workDate.slice(0, 10)}</td>
-                <td data-label="Block">{s.blockId}</td>
+                <td data-label="Block">{s.blockId || 'Project-wide'}</td>
                 <td data-label="Work package">
                   {state.packages.find((p) => p.id === s.packageId)?.name || 'Legacy work package'}
                 </td>
@@ -842,7 +855,7 @@ function Review({
         <div>
           <dt>Date / block</dt>
           <dd>
-            {s.workDate.slice(0, 10)} · Zone {s.blockId[0]} / {s.blockId}
+            {s.workDate.slice(0, 10)} · {s.blockId ? `Zone ${s.blockId[0]} / ${s.blockId}` : 'Project-wide'}
           </dd>
         </div>
         <div>
@@ -853,10 +866,10 @@ function Review({
           <dt>Submitted</dt>
           <dd>{new Date(s.createdAt).toLocaleString()}</dd>
         </div>
-        <div>
-          <dt>Batch / inspection reference</dt>
-          <dd>{s.batchNumber || '—'}</dd>
-        </div>
+        {s.batchNumber && <div>
+          <dt>Historical batch / inspection reference</dt>
+          <dd>{s.batchNumber}</dd>
+        </div>}
       </dl>
       <table className="responsive-table">
         <thead>
@@ -933,42 +946,6 @@ function Review({
         <h3>Remarks</h3>
         <p>{s.remarks || 'No remarks provided.'}</p>
       </div>
-      {s.supervisorId === state.user.id &&
-        ['WAITING', 'RETURNED'].includes(s.status) &&
-        s.photos.length < 5 && (
-          <label className="field form-section">
-            Attach additional site photos
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              multiple
-              disabled={busy || preview}
-              onChange={async (e) => {
-                const files = Array.from(e.target.files || []);
-                if (files.length + s.photos.length > 5) {
-                  setError('Maximum five photos per submission.');
-                  return;
-                }
-                setBusy(true);
-                setError('');
-                try {
-                  for (const file of files) await uploadPhoto(s.id, file);
-                  await refresh();
-                  onClose();
-                } catch (error) {
-                  setError(
-                    error instanceof Error
-                      ? error.message
-                      : 'Photo upload failed.',
-                  );
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            />
-            <small>Maximum five images total, 5 MB each.</small>
-          </label>
-        )}
       {s.photos.length > 0 && (
         <div className="form-section">
           <h3>Site Photos</h3>

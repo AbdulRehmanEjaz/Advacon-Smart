@@ -40,11 +40,26 @@ const official = (submissions: Submission[] = []) =>
 const close = (actual: number, expected: number) =>
   assert.ok(Math.abs(actual - expected) < 1e-10, `${actual} ≠ ${expected}`);
 
-await test('approved baseline contains exactly seven groups, 24 active KPIs and 100 direct weight', () => {
+await test('approved baseline contains exactly seven groups, 23 active KPIs and 100 direct weight', () => {
   assert.equal(packages.length, 7);
-  assert.equal(packages.flatMap((item) => item.activities).length, 24);
+  assert.equal(packages.flatMap((item) => item.activities).length, 23);
   assert.equal(packages.reduce((sum, item) => sum + item.weight, 0), 100);
   assert.equal(zones.reduce((sum, zone) => sum + zone.count, 0), 19);
+});
+
+await test('supply uses the approved four-KPI 3 + 3 + 1 + 3 model', () => {
+  const supply = packages.find((item) => item.id === 'new-trees')!;
+  assert.deepEqual(supply.activities.map((item) => item.weight), [3, 3, 1, 3]);
+  assert.equal(supply.activities.some((item) => item.id === 'kpi-new-inspection'), false);
+});
+
+await test('final completion contributes its five percent only after approval', () => {
+  const final = sub({ 'kpi-final-handover': 1 }, 'WAITING');
+  final.packageId = 'final-completion';
+  final.blockId = null;
+  close(official([final]).overall, official().overall);
+  final.status = 'APPROVED';
+  close(official([final]).overall, official().overall + 5);
 });
 
 await test('opening balances produce the approved exact overall result', () => {

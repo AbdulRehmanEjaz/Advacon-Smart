@@ -95,13 +95,12 @@ export const packages: PackageDefinition[] = [
   ]),
   pkg('new-trees', '04. Supply of 3,500 Trees', 6, [
     ['kpi-new-selection', 'Tree Selection', 'Trees', 3500, 3],
-    ['kpi-new-inspection', 'Pre-Delivery Inspection', 'Progress %', 3500, 1],
-    ['kpi-new-delivery', 'Transportation & Delivery', 'Progress %', 3500, 2],
+    ['kpi-new-delivery', 'Transportation & Delivery', 'Progress %', 3500, 3],
     ['kpi-new-offloading', 'Off-Loading', 'Progress %', 3500, 1],
     ['kpi-new-handover', 'Inspection, Counting & Handover', 'Progress %', 3500, 3],
   ]),
   pkg('final-completion', 'Final Completion', 7, [
-    ['kpi-final-handover', 'Final Testing, Documentation & Handover', 'Milestone', 3500, 5],
+    ['kpi-final-handover', 'Final Testing, Documentation & Handover', 'Milestone', 1, 5],
   ]),
 ];
 
@@ -118,7 +117,7 @@ export const openingBalances = packages.flatMap((workPackage) =>
   workPackage.activities.map((activity) => ({
     activityId: activity.id,
     quantity: opening[activity.id] || 0,
-    source: 'Approved opening balance',
+    source: 'Approved KPI Tracker Opening Balance',
     effectiveAt: '2026-09-01T00:00:00.000Z',
   })),
 );

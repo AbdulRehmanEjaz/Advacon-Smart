@@ -25,6 +25,7 @@ export function baselineSql(timestamp = new Date().toISOString()) {
       .join(',')};`,
     `UPDATE work_packages SET active=0 WHERE kpi_version='legacy';`,
     `UPDATE activities SET active=0 WHERE kpi_version='legacy';`,
+    `UPDATE activities SET active=0 WHERE id='kpi-new-inspection';`,
     `INSERT OR IGNORE INTO work_packages (id,project_id,name,weight,sort_order,active,kpi_version) VALUES ${packages.map((item) => row([item.id, 'tree-project', item.name, item.weight, item.order, 1, item.kpiVersion!])).join(',')};`,
     ...packages.map((item) =>
       `UPDATE work_packages SET name=${quote(item.name)},weight=${item.weight},sort_order=${item.order},active=1,kpi_version=${quote(item.kpiVersion!)} WHERE id=${quote(item.id)};`,

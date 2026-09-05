@@ -1,12 +1,14 @@
 import { z } from 'zod';
 import {
   cookie,
+  admin,
   HttpError,
   login,
   sameOrigin,
   userFor,
 } from '@/lib/server/auth';
 import { getState, getStateDetail, mutate } from '@/lib/server/service';
+import { buildProgressPdf } from '@/lib/server/pdf';
 export const dynamic = 'force-dynamic';
 const reply = (data: unknown, status = 200, headers = {}) =>
   Response.json(data, {
@@ -22,7 +24,10 @@ async function handler(req: Request) {
       const body = z
         .object({ pin: z.string().max(10) })
         .parse(await req.json());
-      const result = await login(body.pin);
+      const result = await login(
+        body.pin,
+        req.headers.get('cf-connecting-ip') || req.headers.get('x-forwarded-for') || 'unknown',
+      );
       return result.error
         ? reply(
             {
@@ -39,6 +44,17 @@ async function handler(req: Request) {
       return reply({ ok: true }, 200, { 'Set-Cookie': cookie('', 0) });
     }
     const user = await userFor(req);
+    if (path === 'report.pdf' && req.method === 'GET') {
+      admin(user);
+      const bytes = buildProgressPdf(await getState(user, 'reports'));
+      return new Response(bytes, {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': 'attachment; filename="tree-control-progress-report.pdf"',
+          'Cache-Control': 'no-store',
+        },
+      });
+    }
     if (path === 'state' && req.method === 'GET') {
       const view = url.searchParams.get('view') || 'dashboard';
       return reply(

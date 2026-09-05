@@ -17,6 +17,8 @@ import {
   UsersRound,
   Settings2,
   History,
+  WalletCards,
+  Clock3,
   LogOut,
   Search,
   Bell,
@@ -46,7 +48,6 @@ const navigation: {
       ['support', 'Support System', Fence],
       ['translocation', 'Tree Translocation', Trees],
       ['new-trees', 'New Trees', Sprout],
-      ['quality', 'Quality', ShieldCheck],
     ],
   },
   {
@@ -54,6 +55,8 @@ const navigation: {
     items: [
       ['schedule', 'Schedule', ChartNoAxesCombined],
       ['reports', 'Reports', FileChartColumn],
+      ['cost-control', 'Cost Control', WalletCards],
+      ['timesheet', 'Timesheet', Clock3],
       ['supervisors', 'Supervisors', UsersRound],
       ['settings', 'Project Settings', Settings2],
       ['audit', 'Audit Log', History],

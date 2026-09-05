@@ -167,7 +167,7 @@ export function Supervisors({
                     )}
                     {editable && (
                       <option value="pin" disabled={preview}>
-                        Reserve future PIN
+                        Change PIN
                       </option>
                     )}
                     <option value="history">View history</option>
@@ -210,9 +210,8 @@ export function Supervisors({
         </button>
       </div>
       <p className="card-subtitle">
-        Runtime Supervisor access currently uses the private Worker PIN. Record
-        PINs are reserved for the later dynamic-authentication phase and are
-        never displayed.
+        Each account uses its own private D1-backed PIN. PIN values and hashes
+        are never displayed.
       </p>
       {selection &&
         (selection.action === 'history' ? (
@@ -259,7 +258,7 @@ function SupervisorEditor({
       : action === 'rename'
         ? 'Edit name'
         : action === 'pin'
-          ? 'Reserve future PIN'
+          ? 'Change PIN'
           : action === 'delete'
             ? 'Delete Supervisor'
             : user?.active
@@ -290,7 +289,7 @@ function SupervisorEditor({
           : result.outcome === 'deleted'
             ? 'Unused account permanently deleted. No project history was removed.'
             : action === 'pin'
-              ? 'Future dynamic-login PIN reserved.'
+              ? 'PIN changed. Existing sessions for this account are now invalid.'
               : 'Account updated successfully.',
       );
     } catch (e) {
@@ -359,15 +358,15 @@ function SupervisorEditor({
         )}
         {action === 'pin' && (
           <p className="notice info">
-            This does not change the current Worker-secret Supervisor login.
-            The value is reserved for the later dynamic-authentication phase.
+            The new PIN works immediately. Existing sessions for this account
+            will be signed out.
           </p>
         )}
         {action === 'status' && (
           <p className="notice info">
             {user?.active
-              ? 'The project record will be marked inactive. Submissions, approvals and reports remain unchanged; the current Worker-secret login is separate.'
-              : 'The project record will be reactivated. Historical records remain linked; the current Worker-secret login is separate.'}
+              ? 'The account will be deactivated and its current sessions invalidated. Submissions, approvals and reports remain unchanged.'
+              : 'The account will be reactivated. Historical records remain linked; a valid account PIN is still required.'}
           </p>
         )}
         {action === 'delete' && (
@@ -476,10 +475,10 @@ function SupervisorHistory({
         <article className="form-section" key={s.id}>
           <div className="card-heading">
             <strong>
-              {s.workDate.slice(0, 10)} · Zone{' '}
-              {state.blocks.find((b) => b.id === s.blockId)?.zoneId ||
-                s.blockId[0]}{' '}
-              / {s.blockId}
+              {s.workDate.slice(0, 10)} ·{' '}
+              {s.blockId
+                ? `Zone ${state.blocks.find((b) => b.id === s.blockId)?.zoneId || s.blockId[0]} / ${s.blockId}`
+                : 'Project-wide'}
             </strong>
             <Badge status={s.status} />
           </div>

@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { approvedTotals, calculateKpiProgress } from '../lib/domain/calculations';
 import { baselineSql } from '../lib/server/d1-baseline';
+import { riyadhDate } from '../lib/domain/date';
 
 const root = fileURLToPath(new URL('../dist/server/', import.meta.url));
 const config = JSON.parse(
@@ -53,8 +54,13 @@ function runtime() {
 }
 
 const origin = 'https://swiftops.test';
+function offsetRiyadhDate(days: number) {
+  const value = new Date(`${riyadhDate()}T12:00:00+03:00`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return riyadhDate(value);
+}
 type State = {
-  user: { role: string };
+  user: { id: string; role: string };
   submissions: import('../lib/domain/calculations').Submission[];
   blocks: unknown[];
   packages: import('../lib/domain/baseline').PackageDefinition[];
@@ -63,17 +69,24 @@ type State = {
   users?: { id: string; name: string }[];
   inspections?: { number: string }[];
 };
-async function login(fetcher: typeof fetch, pin: string) {
+async function login(fetcher: typeof fetch, pin: string, ip = `test-${pin}`) {
   const started = performance.now();
   const response = await fetcher(origin + '/api/login', {
     method: 'POST',
-    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    headers: { Origin: origin, 'Content-Type': 'application/json', 'cf-connecting-ip': ip },
     body: JSON.stringify({ pin }),
   });
   assert.equal(response.status, 200);
   const cookie = (response.headers.get('set-cookie') || '').split(';')[0];
   assert.match(cookie, /^tree_session=/);
   return { cookie, milliseconds: performance.now() - started };
+}
+async function loginResponse(fetcher: typeof fetch, pin: string, ip: string) {
+  return fetcher(origin + '/api/login', {
+    method: 'POST',
+    headers: { Origin: origin, 'Content-Type': 'application/json', 'cf-connecting-ip': ip },
+    body: JSON.stringify({ pin }),
+  });
 }
 async function post(
   fetcher: typeof fetch,
@@ -116,6 +129,27 @@ try {
     ).replace(/\s*\r?\n\s*/g, ' '),
   );
   await d1.exec(baselineSql('2026-09-03T00:00:00.000Z'));
+  await d1.prepare(`INSERT INTO daily_submissions
+    (id,request_key,supervisor_id,work_date,block_id,package_id,remarks,status,version,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(
+      'migration-preservation', 'migration-preservation', 'initial-foreman',
+      '2026-09-03', 'A01', 'irrigation', 'Preserve me', 'WAITING', 1,
+      '2026-09-03', '2026-09-03',
+    ).run();
+  await d1.exec(
+    (
+      await readFile(
+        new URL('../d1/migrations/0003_auth_and_optional_blocks.sql', import.meta.url),
+        'utf8',
+      )
+    ).replace(/\s*\r?\n\s*/g, ' '),
+  );
+  assert.equal(
+    (await d1.prepare("SELECT COUNT(*) AS count FROM daily_submissions WHERE id='migration-preservation'").first<{ count: number }>())?.count,
+    1,
+  );
+  await d1.prepare("DELETE FROM daily_submissions WHERE id='migration-preservation'").run();
+  await d1.exec(baselineSql('2026-09-03T00:00:00.000Z'));
   await d1.exec(baselineSql('2026-09-03T00:00:00.000Z'));
 
   const fetcher = worker.dispatchFetch.bind(worker) as unknown as typeof fetch;
@@ -132,17 +166,109 @@ try {
   assert.equal(adminState.user.role, 'ADMIN');
   assert.equal(adminState.blocks.length, 19);
   assert.equal(adminState.packages.length, 7);
-  assert.equal(adminState.packages.flatMap((item) => item.activities).length, 24);
-  assert.equal(adminState.openingBalances.length, 24);
+  assert.equal(adminState.packages.flatMap((item) => item.activities).length, 23);
+  assert.equal(adminState.openingBalances.filter((item) =>
+    adminState.packages.flatMap((group) => group.activities).some((activity) => activity.id === item.activityId),
+  ).length, 23);
   assert.equal(adminState.submissions.length, 0);
+  assert.equal(
+    Object.keys(adminState.users?.[0] || {}).some((key) =>
+      ['pin', 'pinHash', 'pinSalt', 'pinLookup'].includes(key),
+    ),
+    false,
+  );
   assert.equal((await state(fetcher, supervisor.cookie)).user.role, 'FOREMAN');
+
+  const createdResponse = await post(fetcher, 'supervisor', {
+    action: 'create', name: 'Second Site Supervisor', pin: '678', confirmPin: '678',
+  }, admin.cookie);
+  assert.equal(createdResponse.status, 200, await createdResponse.clone().text());
+  const createdId = ((await createdResponse.json()) as { id: string }).id;
+  const secondLogin = await login(fetcher, '678', 'second-supervisor');
+  assert.equal((await state(fetcher, secondLogin.cookie)).user.id, createdId);
+  const duplicatePin = await post(fetcher, 'supervisor', {
+    action: 'create', name: 'Duplicate PIN Account', pin: '678', confirmPin: '678',
+  }, admin.cookie);
+  assert.equal(duplicatePin.status, 409);
+  assert.equal((await post(fetcher, 'supervisor', {
+    action: 'rename', id: createdId, name: 'Renamed Site Supervisor',
+  }, admin.cookie)).status, 200);
+  assert.equal((await state(fetcher, secondLogin.cookie)).user.id, createdId);
+  assert.equal((await post(fetcher, 'supervisor', {
+    action: 'pin', id: createdId, pin: '679', confirmPin: '679',
+  }, admin.cookie)).status, 200);
+  assert.equal((await fetcher(origin + '/api/state', { headers: { Cookie: secondLogin.cookie } })).status, 401);
+  assert.equal((await loginResponse(fetcher, '678', 'old-pin')).status, 401);
+  const changedLogin = await login(fetcher, '679', 'changed-pin');
+  assert.equal((await post(fetcher, 'supervisor', {
+    action: 'status', id: createdId, active: false,
+  }, admin.cookie)).status, 200);
+  assert.equal((await fetcher(origin + '/api/state', { headers: { Cookie: changedLogin.cookie } })).status, 401);
+  assert.equal((await loginResponse(fetcher, '679', 'inactive-account')).status, 401);
+  assert.equal((await post(fetcher, 'supervisor', {
+    action: 'rename', id: 'initial-foreman', name: 'Forbidden Rename',
+  }, supervisor.cookie)).status, 403);
+
+  for (const wrongDate of [offsetRiyadhDate(-1), offsetRiyadhDate(1)]) {
+    const wrongDay = await post(fetcher, 'submission', {
+      requestKey: crypto.randomUUID(), workDate: wrongDate, blockId: null,
+      packageId: 'irrigation', remarks: '',
+      items: [{ activityId: 'kpi-irrigation-hdpe', quantity: 1 }],
+    }, supervisor.cookie);
+    assert.equal(wrongDay.status, 400);
+  }
+  const unnecessaryBlock = await post(fetcher, 'submission', {
+    requestKey: crypto.randomUUID(), workDate: riyadhDate(), blockId: 'A01',
+    packageId: 'irrigation', remarks: '',
+    items: [{ activityId: 'kpi-irrigation-hdpe', quantity: 1 }],
+  }, supervisor.cookie);
+  assert.equal(unnecessaryBlock.status, 400);
+  const missingBlock = await post(fetcher, 'submission', {
+    requestKey: crypto.randomUUID(), workDate: riyadhDate(), blockId: null,
+    packageId: 'translocation', remarks: '',
+    items: [{ activityId: 'kpi-translocation-preparation', quantity: 1 }],
+  }, supervisor.cookie);
+  assert.equal(missingBlock.status, 400);
+  const missingSupplyBlock = await post(fetcher, 'submission', {
+    requestKey: crypto.randomUUID(), workDate: riyadhDate(), blockId: null,
+    packageId: 'new-trees', remarks: '',
+    items: [{ activityId: 'kpi-new-selection', quantity: 1 }],
+  }, supervisor.cookie);
+  assert.equal(missingSupplyBlock.status, 400);
+  for (const packageId of ['mobilization', 'drawings']) {
+    const activityId = packageId === 'mobilization' ? 'kpi-mobilization' : 'kpi-designs-drawings';
+    const unavailable = await post(fetcher, 'submission', {
+      requestKey: crypto.randomUUID(), workDate: riyadhDate(), blockId: null,
+      packageId, remarks: '', items: [{ activityId, quantity: 1 }],
+    }, supervisor.cookie);
+    assert.equal(unavailable.status, 400);
+  }
+  const removedKpi = await post(fetcher, 'submission', {
+    requestKey: crypto.randomUUID(), workDate: riyadhDate(), blockId: 'A01',
+    packageId: 'new-trees', remarks: '',
+    items: [{ activityId: 'kpi-new-inspection', quantity: 1 }],
+  }, supervisor.cookie);
+  assert.equal(removedKpi.status, 400);
+
+  for (const [packageId, activityId, blockId] of [
+    ['support', 'kpi-support-wire', null],
+    ['translocation', 'kpi-translocation-preparation', 'A01'],
+    ['new-trees', 'kpi-new-selection', 'A01'],
+  ] as const) {
+    const adminEntry = await post(fetcher, 'submission', {
+      requestKey: crypto.randomUUID(), workDate: '2026-01-15', blockId,
+      packageId, remarks: 'Administrator historical-date verification',
+      items: [{ activityId, quantity: 1 }],
+    }, admin.cookie);
+    assert.equal(adminEntry.status, 200, await adminEntry.text());
+  }
   const legacySubmit = await post(
     fetcher,
     'submission',
     {
       requestKey: crypto.randomUUID(),
-      workDate: '2026-09-03',
-      blockId: 'A01',
+      workDate: riyadhDate(),
+      blockId: null,
       packageId: 'irrigation',
       remarks: 'Inactive KPI must be rejected',
       items: [{ activityId: 'route', quantity: 1 }],
@@ -156,8 +282,8 @@ try {
     'submission',
     {
       requestKey: crypto.randomUUID(),
-      workDate: '2026-09-03',
-      blockId: 'A01',
+      workDate: riyadhDate(),
+      blockId: null,
       packageId: 'irrigation',
       remarks: 'D1 workflow verification',
       items: [{ activityId: 'kpi-irrigation-hdpe', quantity: 100 }],
@@ -201,8 +327,8 @@ try {
       'submission',
       {
         requestKey: crypto.randomUUID(),
-        workDate: '2026-09-03',
-        blockId: 'A02',
+        workDate: riyadhDate(),
+        blockId: null,
         packageId: 'irrigation',
         remarks: decision,
         items: [{ activityId: 'kpi-irrigation-hdpe', quantity: 10 }],
@@ -243,8 +369,8 @@ try {
       id: returnedId,
       version: 1,
       requestKey: crypto.randomUUID(),
-      workDate: '2026-09-03',
-      blockId: 'A02',
+      workDate: riyadhDate(),
+      blockId: null,
       packageId: 'irrigation',
       remarks: 'Corrected and resubmitted',
       items: [{ activityId: 'kpi-irrigation-hdpe', quantity: 20 }],
@@ -257,6 +383,35 @@ try {
   assert.equal(revised?.status, 'WAITING');
   assert.equal(revised?.version, 2);
   assert.equal(approvedTotals(adminState.submissions)['kpi-irrigation-hdpe'], 100);
+
+  const finalSubmission = await post(fetcher, 'submission', {
+    requestKey: crypto.randomUUID(), workDate: riyadhDate(), blockId: null,
+    packageId: 'final-completion', remarks: 'Final completion verification',
+    items: [{ activityId: 'kpi-final-handover', quantity: 1 }],
+  }, supervisor.cookie);
+  assert.equal(finalSubmission.status, 200, await finalSubmission.clone().text());
+  const finalId = ((await finalSubmission.json()) as { id: string }).id;
+  adminState = await state(fetcher, admin.cookie);
+  assert.equal(approvedTotals(adminState.submissions)['kpi-final-handover'], undefined);
+  const approveFinal = await post(fetcher, 'review', {
+    id: finalId, version: 1, decision: 'APPROVED', comment: '',
+  }, admin.cookie);
+  assert.equal(approveFinal.status, 200, await approveFinal.text());
+  adminState = await state(fetcher, admin.cookie);
+  assert.equal(approvedTotals(adminState.submissions)['kpi-final-handover'], 1);
+
+  const reportResponse = await fetcher(origin + '/api/report.pdf', {
+    headers: { Cookie: admin.cookie },
+  });
+  assert.equal(reportResponse.status, 200);
+  assert.equal(reportResponse.headers.get('content-type'), 'application/pdf');
+  const reportText = new TextDecoder().decode(await reportResponse.arrayBuffer());
+  assert.match(reportText, /^%PDF-1\.7/);
+  assert.match(reportText, /Overall Project Progress/);
+  assert.doesNotMatch(reportText, /Pre-Delivery Inspection/);
+  assert.equal((await fetcher(origin + '/api/report.pdf', {
+    headers: { Cookie: supervisor.cookie },
+  })).status, 403);
 
   const settings = adminState.settings;
   const settingsResponse = await post(
@@ -330,7 +485,25 @@ try {
   assert.ok(((await auditResponse.json()) as { audit: unknown[] }).audit.length > 0);
   const auditMs = performance.now() - auditStarted;
 
-  const logout = await post(fetcher, 'logout', {}, admin.cookie);
+  const renameAdmin = await post(fetcher, 'supervisor', {
+    action: 'rename', id: 'initial-admin', name: 'Project Administrator Updated',
+  }, admin.cookie);
+  assert.equal(renameAdmin.status, 200);
+  assert.equal((await state(fetcher, admin.cookie)).user.id, 'initial-admin');
+  const changeAdminPin = await post(fetcher, 'supervisor', {
+    action: 'pin', id: 'initial-admin', pin: '089', confirmPin: '089',
+  }, admin.cookie);
+  assert.equal(changeAdminPin.status, 200);
+  assert.equal((await fetcher(origin + '/api/state', { headers: { Cookie: admin.cookie } })).status, 401);
+  assert.equal((await loginResponse(fetcher, '012', 'retired-admin-pin')).status, 401);
+  const updatedAdmin = await login(fetcher, '089', 'updated-admin-pin');
+
+  for (let attempt = 0; attempt < 5; attempt += 1)
+    assert.equal((await loginResponse(fetcher, '998', 'rate-limited-client')).status, 401);
+  assert.equal((await loginResponse(fetcher, '089', 'rate-limited-client')).status, 401);
+  assert.equal((await loginResponse(fetcher, '089', 'separate-client')).status, 200);
+
+  const logout = await post(fetcher, 'logout', {}, updatedAdmin.cookie);
   assert.equal(logout.status, 200);
   assert.match(logout.headers.get('set-cookie') || '', /Max-Age=0/);
 
@@ -340,7 +513,7 @@ try {
     worker.dispatchFetch.bind(worker) as unknown as typeof fetch,
     supervisor.cookie,
   );
-  assert.equal(afterDeploy.submissions.length, 3);
+  assert.equal(afterDeploy.submissions.length, 4);
   assert.equal(afterDeploy.settings.translocationTarget, 10001);
 
   console.log(

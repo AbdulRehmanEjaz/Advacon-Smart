@@ -60,6 +60,26 @@ export function Kpi({
     </article>
   );
 }
+function ProgressGauge({ value }: { value: number }) {
+  return (
+    <article className="card gauge-card gauge-compact">
+      <h2 className="card-title">Overall Project Progress</h2>
+      <div className="gauge-wrap">
+        <svg viewBox="0 0 240 142" aria-label={`${value.toFixed(2)} percent physical progress`}>
+          <defs>
+            <pattern id="remaining-top" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(40)">
+              <rect width="5" height="5" fill="#f2f5f2" />
+              <line x1="0" y1="0" x2="0" y2="5" stroke="#b4c4b9" strokeWidth="1.4" />
+            </pattern>
+          </defs>
+          <path d="M 25 120 A 95 95 0 0 1 215 120" fill="none" stroke="url(#remaining-top)" strokeWidth="29" strokeLinecap="round" />
+          <path d="M 25 120 A 95 95 0 0 1 215 120" fill="none" stroke="#168057" strokeWidth="29" strokeLinecap={value > 0 ? 'round' : 'butt'} pathLength="100" strokeDasharray={`${value} 100`} />
+        </svg>
+        <div className="gauge-number"><strong>{value.toFixed(2)}%</strong><small>Physical Progress</small></div>
+      </div>
+    </article>
+  );
+}
 export function Dashboard({
   state,
   href,
@@ -108,7 +128,7 @@ export function Dashboard({
                 <div className="activity-row" key={s.id}>
                   <CircleCheck size={18} color="#087443" />
                   <div>
-                    <strong>{s.blockId}</strong>
+                    <strong>{s.blockId || 'Project-wide'}</strong>
                     <p className="card-subtitle">
                       {s.items
                         .map(
@@ -222,15 +242,11 @@ function AdminDashboard({
           footer="Until physical completion"
         />
         <Kpi
-          title="Total KPI Weight"
-          value={`${calculated.totalWeight.toFixed(0)}%`}
-          footer="24 approved KPI definitions"
-        />
-        <Kpi
           title="Pending Approval"
           value={number(pending.length)}
           footer="Foreman submissions"
         />
+        <ProgressGauge value={calculated.overall} />
       </div>
       <div className="mini-grid approved-groups">
         {calculated.groups.map((group) => (
@@ -256,9 +272,9 @@ function AdminDashboard({
                 ...group.activities.map((activity) => (
                   <tr key={activity.id}>
                     <td data-label="KPI">{activity.name}</td>
-                    <td data-label="Target">{number(activity.target)} {activity.unit}</td>
-                    <td data-label="Progress">{number(activity.quantity)}</td>
-                    <td data-label="Remaining">{number(activity.remaining)}</td>
+                    <td data-label="Target">{activity.id === 'kpi-final-handover' ? 'Completed' : `${number(activity.target)} ${activity.unit}`}</td>
+                    <td data-label="Progress">{activity.id === 'kpi-final-handover' ? (activity.quantity >= 1 ? 'Completed' : 'Not Completed') : number(activity.quantity)}</td>
+                    <td data-label="Remaining">{activity.id === 'kpi-final-handover' ? (activity.remaining === 0 ? 'Completed' : 'Not Completed') : number(activity.remaining)}</td>
                     <td data-label="Weight">{activity.weight.toFixed(2)}%</td>
                     <td data-label="Completion">{activity.completion.toFixed(2)}%</td>
                     <td data-label="Earned">{activity.earned.toFixed(4)}%</td>
@@ -418,7 +434,7 @@ function AdminDashboard({
             {pending.length ? (
               <>
                 <p>
-                  {pending.at(-1)!.supervisor.name} · {pending.at(-1)!.blockId}
+                  {pending.at(-1)!.supervisor.name} · {pending.at(-1)!.blockId || 'Project-wide'}
                   <br />
                   {new Date(pending.at(-1)!.createdAt).toLocaleString()}
                 </p>
@@ -454,73 +470,6 @@ function AdminDashboard({
             </a>
           </div>
           <ActivityList state={state} />
-        </article>
-        <article className="card gauge-card">
-          <h2 className="card-title">Overall Project Progress</h2>
-          <div className="gauge-wrap">
-            <svg
-              viewBox="0 0 240 142"
-              aria-label={`${calculated.overall.toFixed(2)} percent physical progress`}
-            >
-              <defs>
-                <pattern
-                  id="remaining"
-                  width="5"
-                  height="5"
-                  patternUnits="userSpaceOnUse"
-                  patternTransform="rotate(40)"
-                >
-                  <rect width="5" height="5" fill="#f2f5f2" />
-                  <line
-                    x1="0"
-                    y1="0"
-                    x2="0"
-                    y2="5"
-                    stroke="#b4c4b9"
-                    strokeWidth="1.4"
-                  />
-                </pattern>
-              </defs>
-              <path
-                d="M 25 120 A 95 95 0 0 1 215 120"
-                fill="none"
-                stroke="url(#remaining)"
-                strokeWidth="29"
-                strokeLinecap="round"
-              />
-              <path
-                d="M 25 120 A 95 95 0 0 1 215 120"
-                fill="none"
-                stroke="#168057"
-                strokeWidth="29"
-                strokeLinecap={calculated.overall > 0 ? 'round' : 'butt'}
-                pathLength="100"
-                strokeDasharray={`${calculated.overall} 100`}
-              />
-            </svg>
-            <div className="gauge-number">
-              <strong>{calculated.overall.toFixed(2)}%</strong>
-              <small>Physical Progress</small>
-            </div>
-          </div>
-          <div className="legend" style={{ justifyContent: 'center', gap: 10 }}>
-            <span>
-              <i />
-              Completed
-            </span>
-            <span>
-              <i className="muted-dot" />
-              Remaining
-            </span>
-          </div>
-          {calculated.overall === 0 && (
-            <p
-              className="card-subtitle"
-              style={{ textAlign: 'center', marginTop: 15 }}
-            >
-              No approved progress has been recorded yet.
-            </p>
-          )}
         </article>
         <article className="card readiness-card">
           <div className="card-heading">
@@ -572,7 +521,7 @@ function ActivityList({ state }: { state: State }) {
         <div className="activity-text">
           <strong>{s.supervisor.name}</strong>
           <p>
-            {s.blockId} ·{' '}
+            {s.blockId || 'Project-wide'} ·{' '}
             {state.packages.find((p) => p.id === s.packageId)?.name}
           </p>
         </div>

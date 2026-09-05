@@ -15,7 +15,8 @@ import type { PackageDefinition, Settings } from '../domain/baseline';
 import type { Inspection, User } from '../types';
 import { assertReviewable } from '../domain/workflow';
 import { supervisorAction } from './supervisors';
-import { lookup } from './legacy-credentials';
+import { createCredential } from './credentials';
+import { riyadhDate } from '../domain/date';
 
 type Row = Record<string, string | number | boolean | null>;
 type Core = {
@@ -98,7 +99,9 @@ async function loadCore(supervisorId?: string): Promise<Core> {
     bind(`SELECT p.id,p.submission_id AS submissionId,p.name,p.mime,p.external_url AS externalUrl
       FROM submission_photos p${filtered ? ' WHERE p.submission_id IN (SELECT id FROM daily_submissions WHERE supervisor_id=?)' : ''}`),
     db.prepare(`SELECT id,name,role,active,archived_at AS archivedAt,
-      created_at AS createdAt,updated_at AS updatedAt FROM users ORDER BY name`),
+      CASE WHEN pin_hash IS NULL THEN 1 ELSE 0 END AS defaultPin,
+      last_login AS lastLogin,created_at AS createdAt,updated_at AS updatedAt
+      FROM users ORDER BY role,name`),
     db.prepare(`SELECT id FROM users u WHERE
       EXISTS (SELECT 1 FROM daily_submissions WHERE supervisor_id=u.id) OR
       EXISTS (SELECT 1 FROM approvals WHERE reviewer_id=u.id) OR
@@ -171,7 +174,7 @@ async function loadCore(supervisorId?: string): Promise<Core> {
     status: String(submission.status),
     workDate: String(submission.workDate),
     createdAt: String(submission.createdAt),
-    blockId: String(submission.blockId),
+    blockId: submission.blockId == null ? null : String(submission.blockId),
     packageId: String(submission.packageId),
     version: Number(submission.version),
     batchNumber:
@@ -229,8 +232,8 @@ function userFromRow(row: Row) {
     role: row.role as 'ADMIN' | 'FOREMAN',
     active: bool(row.active),
     archivedAt: row.archivedAt == null ? null : String(row.archivedAt),
-    defaultPin: false,
-    lastLogin: null,
+    defaultPin: bool(row.defaultPin),
+    lastLogin: row.lastLogin == null ? null : String(row.lastLogin),
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
   };
@@ -314,9 +317,8 @@ const submissionSchema = z.object({
   version: z.number().int().optional(),
   requestKey: z.uuid(),
   workDate: date,
-  blockId: z.string(),
+  blockId: z.string().nullable().optional(),
   packageId: z.string(),
-  batchNumber: z.string().trim().max(100).optional(),
   remarks: z.string().trim().max(3000).default(''),
   overrideReason: z.string().trim().max(2000).optional(),
   items: z
@@ -465,10 +467,11 @@ function auditStatement(
 async function activeUser(user: Actor) {
   const row = await first<Row>(
     `SELECT id,name,role,active,archived_at AS archivedAt,created_at AS createdAt,
-     updated_at AS updatedAt FROM users WHERE id=?`,
+     credential_version AS credentialVersion,updated_at AS updatedAt FROM users WHERE id=?`,
     user.id,
   );
-  if (!row || !bool(row.active) || row.archivedAt || row.role !== user.role)
+  if (!row || !bool(row.active) || row.archivedAt || row.role !== user.role ||
+      Number(row.credentialVersion) !== user.credentialVersion)
     throw new HttpError(403, 'Your access has changed. Please sign in again.');
   return row;
 }
@@ -481,10 +484,11 @@ export async function mutate(path: string, req: Request, user: Actor) {
 
   if (path === 'submission') {
     const data = submissionSchema.parse(body);
-    requireThat(
-      data.workDate <= new Date().toISOString().slice(0, 10),
-      'Future-dated progress is not allowed.',
-    );
+    if (user.role === 'FOREMAN')
+      requireThat(
+        data.workDate === riyadhDate(),
+        `Supervisors can only submit progress for today (${riyadhDate()} Asia/Riyadh).`,
+      );
     const duplicate = await first<Row>(
       'SELECT id,supervisor_id AS supervisorId FROM daily_submissions WHERE request_key=?',
       data.requestKey,
@@ -494,9 +498,23 @@ export async function mutate(path: string, req: Request, user: Actor) {
       return { id: String(duplicate.id) };
     }
     const core = await loadCore();
-    const block = core.blocks.find((item) => item.id === data.blockId);
+    const sitePackage = ['translocation', 'new-trees'].includes(data.packageId);
+    requireThat(
+      sitePackage ? Boolean(data.blockId) : !data.blockId,
+      sitePackage
+        ? 'Zone and Block are required for this Main Activity.'
+        : 'Zone and Block do not apply to this Main Activity.',
+    );
+    const block = data.blockId
+      ? core.blocks.find((item) => item.id === data.blockId)
+      : undefined;
     const workPackage = core.packages.find((item) => item.id === data.packageId);
-    requireThat(block && workPackage, 'Select a valid block and work package.');
+    requireThat(workPackage, 'Select a valid active Main Activity.');
+    requireThat(
+      !['mobilization', 'drawings'].includes(workPackage.id),
+      'This Main Activity is not available for site submissions.',
+    );
+    requireThat(!sitePackage || block, 'Select a valid Zone and Block.');
     requireThat(
       new Set(data.items.map((item) => item.activityId)).size ===
         data.items.length,
@@ -517,7 +535,7 @@ export async function mutate(path: string, req: Request, user: Actor) {
     validateSubmittedRemaining(core, data.items);
     if (user.role !== 'ADMIN')
       requireThat(!data.overrideReason, 'Only administrators can override readiness.');
-    checkPlacement(core, block, data.items, user, data.overrideReason);
+    if (block) checkPlacement(core, block, data.items, user, data.overrideReason);
     const timestamp = now();
     if (data.id) {
       const before = core.submissions.find((item) => item.id === data.id);
@@ -538,7 +556,7 @@ export async function mutate(path: string, req: Request, user: Actor) {
           data.workDate,
           data.blockId,
           data.packageId,
-          data.batchNumber ?? null,
+          null,
           data.remarks,
           data.overrideReason ?? null,
           timestamp,
@@ -571,7 +589,7 @@ export async function mutate(path: string, req: Request, user: Actor) {
         data.workDate,
         data.blockId,
         data.packageId,
-        data.batchNumber ?? null,
+        null,
         data.remarks,
         data.overrideReason ?? null,
         timestamp,
@@ -619,13 +637,11 @@ export async function mutate(path: string, req: Request, user: Actor) {
     if (data.decision !== 'APPROVED')
       requireThat(data.comment.length >= 5, 'A meaningful review comment is required.');
     if (data.decision === 'APPROVED') {
-      checkPlacement(
-        core,
-        core.blocks.find((item) => item.id === before.blockId)!,
-        before.items,
-        user,
-        data.overrideReason,
-      );
+      const reviewBlock = before.blockId
+        ? core.blocks.find((item) => item.id === before.blockId)
+        : undefined;
+      if (reviewBlock)
+        checkPlacement(core, reviewBlock, before.items, user, data.overrideReason);
       validateCandidate(
         core,
         core.submissions.map((item) =>
@@ -694,11 +710,13 @@ export async function mutate(path: string, req: Request, user: Actor) {
           : value,
       ),
     }));
-    const beforeBlock = readiness(
-      core.blocks.find((block) => block.id === submission.blockId)!,
-      core.submissions,
-    );
-    if (data.quantity > 0)
+    const sourceBlock = submission.blockId
+      ? core.blocks.find((block) => block.id === submission.blockId)
+      : undefined;
+    const beforeBlock = sourceBlock
+      ? readiness(sourceBlock, core.submissions)
+      : null;
+    if (data.quantity > 0 && beforeBlock)
       checkPlacement(
         core,
         beforeBlock,
@@ -707,11 +725,13 @@ export async function mutate(path: string, req: Request, user: Actor) {
         data.overrideReason,
       );
     validateCandidate(core, candidate, user, data.overrideReason);
-    const afterBlock = readiness(beforeBlock, candidate);
-    requireThat(
-      !(beforeBlock.ready && !afterBlock.ready && beforeBlock.occupied > 0),
-      'This correction would remove readiness from an occupied block. Place the block on hold and resolve the safety issue first.',
-    );
+    if (beforeBlock) {
+      const afterBlock = readiness(beforeBlock, candidate);
+      requireThat(
+        !(beforeBlock.ready && !afterBlock.ready && beforeBlock.occupied > 0),
+        'This correction would remove readiness from an occupied block. Place the block on hold and resolve the safety issue first.',
+      );
+    }
     const adjustmentId = id();
     await database().batch([
       statement(
@@ -741,10 +761,12 @@ export async function mutate(path: string, req: Request, user: Actor) {
     if (targetId && !before) throw new HttpError(404, 'Account not found.');
     if (before?.role === 'ADMIN' && (before.id !== user.id || !['rename', 'pin'].includes(data.action)))
       throw new HttpError(403, 'Administrator accounts cannot be deactivated or deleted here.');
-    let pinLookup: string | undefined;
+    let credential:
+      | { pinLookup: string; pinSalt: string; pinHash: string }
+      | undefined;
     if ('pin' in data) {
-      pinLookup = await lookup(data.pin);
-      const duplicate = await first<Row>('SELECT id FROM users WHERE pin_lookup=?', pinLookup);
+      credential = await createCredential(data.pin);
+      const duplicate = await first<Row>('SELECT id FROM users WHERE pin_lookup=?', credential.pinLookup);
       if (duplicate && duplicate.id !== targetId)
         throw new HttpError(409, 'That PIN is already reserved. Choose a different PIN.');
     }
@@ -757,10 +779,13 @@ export async function mutate(path: string, req: Request, user: Actor) {
       savedId = id();
       writes.push(
         statement(
-          `INSERT INTO users (id,name,role,pin_lookup,active,created_at,updated_at) VALUES (?,?,'FOREMAN',?,1,?,?)`,
+          `INSERT INTO users (id,name,role,pin_lookup,pin_salt,pin_hash,credential_version,active,created_at,updated_at)
+           VALUES (?,?,'FOREMAN',?,?,?,1,1,?,?)`,
           savedId,
           data.name,
-          pinLookup!,
+          credential!.pinLookup,
+          credential!.pinSalt,
+          credential!.pinHash,
           timestamp,
           timestamp,
         ),
@@ -774,7 +799,7 @@ export async function mutate(path: string, req: Request, user: Actor) {
         EXISTS (SELECT 1 FROM audit_logs WHERE user_id=? OR (entity_type='User' AND entity_id=?))`,
         data.id,data.id,data.id,data.id,data.id);
       if (history) {
-        writes.push(statement('UPDATE users SET active=0,archived_at=COALESCE(archived_at,?),updated_at=? WHERE id=?', timestamp,timestamp,data.id));
+        writes.push(statement('UPDATE users SET active=0,archived_at=COALESCE(archived_at,?),credential_version=credential_version+1,updated_at=? WHERE id=?', timestamp,timestamp,data.id));
         outcome = 'archived';
         action = 'SUPERVISOR_ARCHIVED';
       } else {
@@ -786,10 +811,13 @@ export async function mutate(path: string, req: Request, user: Actor) {
       writes.push(statement('UPDATE users SET name=?,updated_at=? WHERE id=?', data.name,timestamp,data.id));
       action = 'SUPERVISOR_RENAMED';
     } else if (data.action === 'pin') {
-      writes.push(statement('UPDATE users SET pin_lookup=?,updated_at=? WHERE id=?', pinLookup!,timestamp,data.id));
-      action = 'USER_PIN_RESERVED';
+      writes.push(statement(
+        'UPDATE users SET pin_lookup=?,pin_salt=?,pin_hash=?,credential_version=credential_version+1,updated_at=? WHERE id=?',
+        credential!.pinLookup,credential!.pinSalt,credential!.pinHash,timestamp,data.id,
+      ));
+      action = 'USER_PIN_CHANGED';
     } else {
-      writes.push(statement('UPDATE users SET active=?,archived_at=?,updated_at=? WHERE id=?', Number(data.active),data.active ? null : before!.archivedAt,timestamp,data.id));
+      writes.push(statement('UPDATE users SET active=?,archived_at=?,credential_version=credential_version+1,updated_at=? WHERE id=?', Number(data.active),data.active ? null : before!.archivedAt,timestamp,data.id));
       action = data.active ? 'SUPERVISOR_ACTIVATED' : 'SUPERVISOR_DEACTIVATED';
     }
     writes.push(auditStatement(user, action, 'User', savedId, before, { action: data.action, outcome }));
