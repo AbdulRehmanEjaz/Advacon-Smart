@@ -179,10 +179,10 @@ CREATE INDEX idx_audit_entity ON audit_logs(entity_type, entity_id);
 CREATE TRIGGER approval_insert_guard
 BEFORE INSERT ON approvals
 BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT (CASE WHEN NOT EXISTS (
     SELECT 1 FROM daily_submissions
     WHERE id = NEW.submission_id AND status = 'WAITING' AND version = NEW.version
-  ) THEN RAISE(ABORT, 'SUBMISSION_NOT_REVIEWABLE') END;
+  ) THEN RAISE(ABORT, 'SUBMISSION_NOT_REVIEWABLE') END);
 END;
 
 CREATE TRIGGER approvals_immutable_update
