@@ -15,6 +15,7 @@ export const baseline = {
   redVariance: -5,
   pendingHours: 48,
 };
+
 export type Settings = typeof baseline;
 export type ActivityDefinition = {
   id: string;
@@ -24,6 +25,8 @@ export type ActivityDefinition = {
   targetKey: string;
   weight: number;
   target?: number | null;
+  active?: boolean;
+  kpiVersion?: string;
   schedule?: { start: string; finish: string } | null;
 };
 export type PackageDefinition = {
@@ -31,159 +34,95 @@ export type PackageDefinition = {
   name: string;
   weight: number;
   order: number;
+  active?: boolean;
+  kpiVersion?: string;
   activities: ActivityDefinition[];
 };
-type Entry = [string, string, string, string, number];
-function pkg(
-  id: string,
-  name: string,
-  weight: number,
-  order: number,
-  rows: Entry[],
-): PackageDefinition {
+
+type Kpi = [string, string, string, number, number];
+const VERSION = 'approved-2026-09';
+function pkg(id: string, name: string, order: number, rows: Kpi[]): PackageDefinition {
+  const activities = rows.map(([key, title, unit, target, weight]) => ({
+    id: key,
+    packageId: id,
+    name: title,
+    unit,
+    targetKey: 'fixed',
+    target,
+    weight,
+    active: true,
+    kpiVersion: VERSION,
+  }));
   return {
     id,
     name,
-    weight,
+    weight: activities.reduce((sum, activity) => sum + activity.weight, 0),
     order,
-    activities: rows.map(([key, title, unit, targetKey, w]) => ({
-      id: key,
-      packageId: id,
-      name: title,
-      unit,
-      targetKey,
-      weight: w,
-    })),
+    active: true,
+    kpiVersion: VERSION,
+    activities,
   };
 }
-function checklist(prefix: string, names: string[]): Entry[] {
-  const weight = Math.floor(100_000_000 / names.length) / 1_000_000;
-  return names.map((name, i) => [
-    `${prefix}_${i + 1}`,
-    name,
-    'milestone',
-    'one',
-    i === names.length - 1
-      ? Number((100 - (names.length - 1) * weight).toFixed(6))
-      : weight,
-  ]);
-}
+
 export const packages: PackageDefinition[] = [
-  pkg(
-    'mobilization',
-    'Mobilization, Permits & Survey',
-    5,
-    1,
-    checklist('mobilization', [
-      'Mobilization',
-      'Access / permits',
-      'Survey',
-      'Block setting-out',
-      'Row setting-out',
-      'Network-route setting-out',
-    ]),
-  ),
-  pkg(
-    'drawings',
-    'Detailed Layout & Drawings',
-    5,
-    2,
-    checklist('drawings', [
-      'Nursery layout',
-      'Irrigation layout',
-      'Block layout',
-      'Support layout',
-      'Detailed drawings',
-      'Relevant approvals',
-    ]),
-  ),
-  pkg('irrigation', 'Site Preparation & Irrigation', 25, 3, [
-    ['route', 'Route prepared', 'm', 'irrigationTarget', 10],
-    ['trench', 'Trench excavated', 'm', 'irrigationTarget', 15],
-    ['pipe', 'HDPE pipeline installed', 'm', 'irrigationTarget', 35],
-    ['valves', 'Valves installed', 'each', 'valveTarget', 7.5],
-    ['decoders', 'Decoders installed', 'each', 'decoderTarget', 7.5],
-    ['backfill', 'Backfilled & compacted', 'm', 'irrigationTarget', 10],
-    ['tested', 'Block tested', 'block', 'blockTarget', 0],
-    ['passed', 'Block test passed', 'block', 'blockTarget', 0],
-    ['commissioned', 'Block commissioned', 'block', 'blockTarget', 15],
-    ['points', 'Irrigation points installed', 'each', 'none', 0],
+  pkg('mobilization', 'Mobilization', 1, [
+    ['kpi-mobilization', 'Mobilization', 'Milestone', 1, 5],
   ]),
-  pkg('support', 'Tree Support System', 20, 4, [
-    ['rows', 'Rows set out', 'row', 'rowTarget', 5],
-    ['holes', 'Holes drilled', 'each', 'postTarget', 15],
-    ['foundations', 'Foundations completed', 'each', 'postTarget', 20],
-    ['posts', 'Posts installed & aligned', 'each', 'postTarget', 25],
-    ['cable', 'Rows with cable installed', 'row', 'rowTarget', 10],
-    ['tensioned', 'Rows tensioned', 'row', 'rowTarget', 10],
-    ['inspected_rows', 'Rows inspected', 'row', 'rowTarget', 0],
-    ['approved_rows', 'Rows approved', 'row', 'rowTarget', 15],
+  pkg('drawings', 'Designs & Drawings', 2, [
+    ['kpi-designs-drawings', 'Designs & Drawings', 'Milestone', 1, 5],
   ]),
-  pkg('translocation', 'Tree Translocation & Placement', 30, 5, [
-    ['tree_inspected', 'Trees inspected', 'tree', 'translocationTarget', 0],
-    ['loaded', 'Trees loaded', 'tree', 'translocationTarget', 0],
-    ['transported', 'Trees transported', 'tree', 'translocationTarget', 0],
-    ['placed', 'Trees correctly placed', 'tree', 'translocationTarget', 100],
-    [
-      'irrigated',
-      'Trees immediately irrigated',
-      'tree',
-      'translocationTarget',
-      0,
-    ],
-    ['damaged', 'Trees damaged', 'tree', 'translocationTarget', 0],
-    ['rejected_trees', 'Trees rejected', 'tree', 'translocationTarget', 0],
+  pkg('irrigation', '01. Site Preparation & Irrigation', 3, [
+    ['kpi-irrigation-survey', 'Survey & Setting-Out', 'Survey Points', 328, 1],
+    ['kpi-irrigation-trenching', 'Trenching & Excavation – Ø160 & Ø110 mm', 'm', 620, 4],
+    ['kpi-irrigation-hdpe', 'HDPE Pipe Installation', 'm', 17070, 12],
+    ['kpi-irrigation-valves', 'Valves, Decoders & Cabling', 'No.', 19, 3],
+    ['kpi-irrigation-backfill', 'Backfilling & Compaction', 'm', 620, 2],
+    ['kpi-irrigation-testing', 'Testing & Commissioning', 'Blocks', 19, 3],
   ]),
-  pkg('new-trees', 'New Tree Supply & Planting', 10, 6, [
-    ['sourced', 'Trees sourced / approved', 'tree', 'newTreeTarget', 10],
-    ['pre_inspected', 'Pre-delivery inspection', 'tree', 'newTreeTarget', 10],
-    ['delivered', 'Trees delivered & off-loaded', 'tree', 'newTreeTarget', 20],
-    ['planted', 'Trees planted / placed', 'tree', 'newTreeTarget', 35],
-    [
-      'new_irrigated',
-      'Trees immediately irrigated',
-      'tree',
-      'newTreeTarget',
-      10,
-    ],
-    ['new_inspected', 'Trees inspected', 'tree', 'newTreeTarget', 0],
-    ['accepted', 'Planted trees accepted', 'tree', 'newTreeTarget', 15],
-    ['new_rejected', 'Trees rejected', 'tree', 'newTreeTarget', 0],
-    ['new_damaged', 'Trees damaged', 'tree', 'newTreeTarget', 0],
+  pkg('support', '02. Tree Support System', 4, [
+    ['kpi-support-survey', 'Survey & Setting-Out', 'Survey Points', 1560, 1],
+    ['kpi-support-drilling', 'Drilling & Foundation Excavation', 'Holes', 1560, 4],
+    ['kpi-support-foundation-posts', 'Concrete Foundation Works & Steel Support Post Installation', 'Posts/Foundations', 1560, 12],
+    ['kpi-support-wire', 'Tension-Wire Installation', 'm', 17000, 6],
+    ['kpi-support-alignment', 'Alignment & Final Inspection', 'Posts', 1560, 2],
   ]),
-  pkg(
-    'testing',
-    'Final Testing & Observation Closure',
-    3,
-    7,
-    checklist('testing', [
-      'Irrigation final checks',
-      'Support final checks',
-      'Tree stability verification',
-      'Rectification',
-      'Reinspection',
-      'Observation closure',
-      'Documentation',
-    ]),
-  ),
-  pkg(
-    'handover',
-    'Final Handover',
-    2,
-    8,
-    checklist('handover', [
-      'Completion inspection',
-      'Irrigation acceptance',
-      'Support acceptance',
-      'Tree relocation completion',
-      'New tree completion',
-      'Observation closure',
-      'Record completion',
-      'Final documentation',
-      'Handover approval',
-    ]),
-  ),
+  pkg('translocation', '03. Tree Translocation & Placement', 5, [
+    ['kpi-translocation-preparation', 'Tree Preparation', 'Trees', 10000, 4],
+    ['kpi-translocation-loading', 'Loading Activities', 'Progress %', 10000, 4],
+    ['kpi-translocation-transportation', 'Transportation', 'Progress %', 10000, 5],
+    ['kpi-translocation-placement', 'Off-Loading & Placement', 'Progress %', 10000, 8],
+    ['kpi-translocation-irrigation', 'Immediate Irrigation & Final Arrangement', 'Progress %', 10000, 4],
+  ]),
+  pkg('new-trees', '04. Supply of 3,500 Trees', 6, [
+    ['kpi-new-selection', 'Tree Selection', 'Trees', 3500, 3],
+    ['kpi-new-inspection', 'Pre-Delivery Inspection', 'Progress %', 3500, 1],
+    ['kpi-new-delivery', 'Transportation & Delivery', 'Progress %', 3500, 2],
+    ['kpi-new-offloading', 'Off-Loading', 'Progress %', 3500, 1],
+    ['kpi-new-handover', 'Inspection, Counting & Handover', 'Progress %', 3500, 3],
+  ]),
+  pkg('final-completion', 'Final Completion', 7, [
+    ['kpi-final-handover', 'Final Testing, Documentation & Handover', 'Milestone', 3500, 5],
+  ]),
 ];
+
+const opening: Record<string, number> = {
+  'kpi-mobilization': 1,
+  'kpi-designs-drawings': 1,
+  'kpi-irrigation-survey': 150,
+  'kpi-irrigation-trenching': 450,
+  'kpi-irrigation-hdpe': 800,
+  'kpi-support-survey': 800,
+  'kpi-support-drilling': 480,
+};
+export const openingBalances = packages.flatMap((workPackage) =>
+  workPackage.activities.map((activity) => ({
+    activityId: activity.id,
+    quantity: opening[activity.id] || 0,
+    source: 'Approved opening balance',
+    effectiveAt: '2026-09-01T00:00:00.000Z',
+  })),
+);
+
 export const zones = [
   { id: 'A', count: 6, capacity: 4416, spacing: 'Approx. 1.00 × 1.20 m' },
   { id: 'B', count: 9, capacity: 6912, spacing: 'Approx. 1.00 × 1.20 m' },

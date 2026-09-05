@@ -4,7 +4,7 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { approvedTotals, progress } from '../lib/domain/calculations';
+import { approvedTotals, calculateKpiProgress } from '../lib/domain/calculations';
 import { baselineSql } from '../lib/server/d1-baseline';
 
 const root = fileURLToPath(new URL('../dist/server/', import.meta.url));
@@ -58,6 +58,7 @@ type State = {
   submissions: import('../lib/domain/calculations').Submission[];
   blocks: unknown[];
   packages: import('../lib/domain/baseline').PackageDefinition[];
+  openingBalances: import('../lib/domain/calculations').OpeningBalance[];
   settings: import('../lib/domain/baseline').Settings;
   users?: { id: string; name: string }[];
   inspections?: { number: string }[];
@@ -106,6 +107,14 @@ try {
       )
     ).replace(/\s*\r?\n\s*/g, ' '),
   );
+  await d1.exec(
+    (
+      await readFile(
+        new URL('../d1/migrations/0002_approved_kpi_system.sql', import.meta.url),
+        'utf8',
+      )
+    ).replace(/\s*\r?\n\s*/g, ' '),
+  );
   await d1.exec(baselineSql('2026-09-03T00:00:00.000Z'));
   await d1.exec(baselineSql('2026-09-03T00:00:00.000Z'));
 
@@ -122,8 +131,25 @@ try {
   const snapshotMs = performance.now() - snapshotStarted;
   assert.equal(adminState.user.role, 'ADMIN');
   assert.equal(adminState.blocks.length, 19);
+  assert.equal(adminState.packages.length, 7);
+  assert.equal(adminState.packages.flatMap((item) => item.activities).length, 24);
+  assert.equal(adminState.openingBalances.length, 24);
   assert.equal(adminState.submissions.length, 0);
   assert.equal((await state(fetcher, supervisor.cookie)).user.role, 'FOREMAN');
+  const legacySubmit = await post(
+    fetcher,
+    'submission',
+    {
+      requestKey: crypto.randomUUID(),
+      workDate: '2026-09-03',
+      blockId: 'A01',
+      packageId: 'irrigation',
+      remarks: 'Inactive KPI must be rejected',
+      items: [{ activityId: 'route', quantity: 1 }],
+    },
+    supervisor.cookie,
+  );
+  assert.equal(legacySubmit.status, 400);
 
   const submit = await post(
     fetcher,
@@ -134,7 +160,7 @@ try {
       blockId: 'A01',
       packageId: 'irrigation',
       remarks: 'D1 workflow verification',
-      items: [{ activityId: 'route', quantity: 100 }],
+      items: [{ activityId: 'kpi-irrigation-hdpe', quantity: 100 }],
     },
     supervisor.cookie,
   );
@@ -159,11 +185,12 @@ try {
   );
   assert.equal(duplicateReview.status, 409);
   adminState = await state(fetcher, admin.cookie);
-  assert.equal(approvedTotals(adminState.submissions).route, 100);
+  assert.equal(approvedTotals(adminState.submissions)['kpi-irrigation-hdpe'], 100);
   assert.ok(
-    progress(
+    calculateKpiProgress(
       adminState.packages,
-      approvedTotals(adminState.submissions),
+      adminState.openingBalances,
+      adminState.submissions,
       adminState.settings,
     ).overall > 0,
   );
@@ -178,7 +205,7 @@ try {
         blockId: 'A02',
         packageId: 'irrigation',
         remarks: decision,
-        items: [{ activityId: 'route', quantity: 10 }],
+        items: [{ activityId: 'kpi-irrigation-hdpe', quantity: 10 }],
       },
       supervisor.cookie,
     );
@@ -200,7 +227,7 @@ try {
   const returnedId = await submitForDecision('RETURNED');
   const rejectedId = await submitForDecision('REJECTED');
   adminState = await state(fetcher, admin.cookie);
-  assert.equal(approvedTotals(adminState.submissions).route, 100);
+  assert.equal(approvedTotals(adminState.submissions)['kpi-irrigation-hdpe'], 100);
   assert.equal(
     adminState.submissions.find((item) => item.id === returnedId)?.status,
     'RETURNED',
@@ -220,7 +247,7 @@ try {
       blockId: 'A02',
       packageId: 'irrigation',
       remarks: 'Corrected and resubmitted',
-      items: [{ activityId: 'route', quantity: 20 }],
+      items: [{ activityId: 'kpi-irrigation-hdpe', quantity: 20 }],
     },
     supervisor.cookie,
   );
@@ -229,7 +256,7 @@ try {
   const revised = adminState.submissions.find((item) => item.id === returnedId);
   assert.equal(revised?.status, 'WAITING');
   assert.equal(revised?.version, 2);
-  assert.equal(approvedTotals(adminState.submissions).route, 100);
+  assert.equal(approvedTotals(adminState.submissions)['kpi-irrigation-hdpe'], 100);
 
   const settings = adminState.settings;
   const settingsResponse = await post(

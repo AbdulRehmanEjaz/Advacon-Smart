@@ -463,7 +463,7 @@ function SupervisorHistory({
             .find((a) => a.id === id);
           return (
             <span className="badge" key={id}>
-              {activity?.name || id}: {number(qty)} {activity?.unit}
+              {activity?.name || id}: {number(qty)} {activity?.unit || ''}
             </span>
           );
         })}
@@ -491,7 +491,9 @@ function SupervisorHistory({
               {
                 state.packages
                   .flatMap((p) => p.activities)
-                  .find((a) => a.id === i.activityId)?.name
+                  .find((a) => a.id === i.activityId)?.name ||
+                i.activityName ||
+                i.activityId
               }
               : {number(i.quantity)}
             </p>

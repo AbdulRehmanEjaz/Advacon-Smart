@@ -7,8 +7,8 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { type State, post, today } from '@/lib/types';
-import type { Submission } from '@/lib/domain/calculations';
+import { type State, number, post, today } from '@/lib/types';
+import { calculateKpiProgress, targetFor, type Submission } from '@/lib/domain/calculations';
 function fieldText(value: unknown) {
   return typeof value === 'string'
     ? value
@@ -57,7 +57,7 @@ export function ProgressForm({
   onSaved: () => Promise<void>;
   editing?: Submission;
 }) {
-  const [packageId, setPackage] = useState('irrigation'),
+  const [packageId, setPackage] = useState(state.packages[0]?.id || ''),
     [blockId, setBlock] = useState(''),
     [zone, setZone] = useState('A'),
     [workDate, setDate] = useState(today()),
@@ -72,7 +72,7 @@ export function ProgressForm({
   useEffect(() => {
     if (open) {
       // oxlint-disable-next-line react/react-compiler -- Reset the draft only when the modal opens or selected record changes.
-      setPackage(editing?.packageId || 'irrigation');
+      setPackage(editing?.packageId || state.packages[0]?.id || '');
       setBlock(editing?.blockId || '');
       setZone(editing?.blockId[0] || 'A');
       setDate(editing?.workDate.slice(0, 10) || today());
@@ -88,8 +88,14 @@ export function ProgressForm({
       setError('');
       setRequestKey(crypto.randomUUID());
     }
-  }, [open, editing]);
+  }, [open, editing, state.packages]);
   const pkg = state.packages.find((p) => p.id === packageId);
+  const official = calculateKpiProgress(
+    state.packages,
+    state.openingBalances,
+    state.submissions,
+    state.settings!,
+  );
   async function save(e: { preventDefault(): void }) {
     e.preventDefault();
     setBusy(true);
@@ -216,10 +222,15 @@ export function ProgressForm({
             {pkg?.activities.map((a) => (
               <label className="field" key={a.id}>
                 {a.name}
+                <span className="card-subtitle">
+                  Target {number(targetFor(a, state.settings!) || 100)} {a.unit} ·
+                  Official {number(official.totals[a.id] || 0)} ·
+                  Remaining {number(Math.max(0, (targetFor(a, state.settings!) || 100) - (official.totals[a.id] || 0)))}
+                </span>
                 <input
                   type="number"
                   min="0"
-                  max={a.unit === 'milestone' ? 1 : 1000000}
+                  max={Math.max(0, (targetFor(a, state.settings!) || 100) - (official.totals[a.id] || 0))}
                   step={a.unit === 'm' ? '.001' : '1'}
                   placeholder="0"
                   value={quantities[a.id] || ''}
@@ -228,10 +239,9 @@ export function ProgressForm({
                   }
                 />
                 <small>
-                  {a.unit === 'milestone'
+                  {a.unit.toLowerCase() === 'milestone'
                     ? '1 = completed milestone'
-                    : a.unit +
-                      ' · cumulative stage quantities must follow sequence'}
+                    : a.unit + ' · approved quantities only count after review'}
                 </small>
               </label>
             ))}

@@ -1,4 +1,4 @@
-import { baseline, packages, zones } from '../domain/baseline';
+import { baseline, openingBalances, packages, zones } from '../domain/baseline';
 
 const quote = (value: string | number | boolean | null) =>
   value == null
@@ -23,8 +23,13 @@ export function baselineSql(timestamp = new Date().toISOString()) {
         }),
       )
       .join(',')};`,
-    `INSERT OR IGNORE INTO work_packages (id,project_id,name,weight,sort_order) VALUES ${packages.map((item) => row([item.id, 'tree-project', item.name, item.weight, item.order])).join(',')};`,
-    `INSERT OR IGNORE INTO activities (id,package_id,name,unit,target_key,target,weight) VALUES ${packages
+    `UPDATE work_packages SET active=0 WHERE kpi_version='legacy';`,
+    `UPDATE activities SET active=0 WHERE kpi_version='legacy';`,
+    `INSERT OR IGNORE INTO work_packages (id,project_id,name,weight,sort_order,active,kpi_version) VALUES ${packages.map((item) => row([item.id, 'tree-project', item.name, item.weight, item.order, 1, item.kpiVersion!])).join(',')};`,
+    ...packages.map((item) =>
+      `UPDATE work_packages SET name=${quote(item.name)},weight=${item.weight},sort_order=${item.order},active=1,kpi_version=${quote(item.kpiVersion!)} WHERE id=${quote(item.id)};`,
+    ),
+    `INSERT OR IGNORE INTO activities (id,package_id,name,unit,target_key,target,weight,active,kpi_version,direct_project_weight) VALUES ${packages
       .flatMap((item) =>
         item.activities.map((activity) =>
           row([
@@ -35,9 +40,20 @@ export function baselineSql(timestamp = new Date().toISOString()) {
             activity.targetKey,
             activity.target ?? null,
             activity.weight,
+            1,
+            activity.kpiVersion!,
+            activity.weight,
           ]),
         ),
       )
+      .join(',')};`,
+    ...packages.flatMap((item) =>
+      item.activities.map((activity) =>
+        `UPDATE activities SET package_id=${quote(item.id)},name=${quote(activity.name)},unit=${quote(activity.unit)},target_key=${quote(activity.targetKey)},target=${quote(activity.target ?? null)},weight=${activity.weight},active=1,kpi_version=${quote(activity.kpiVersion!)},direct_project_weight=${activity.weight} WHERE id=${quote(activity.id)};`,
+      ),
+    ),
+    `INSERT OR IGNORE INTO kpi_opening_balances (activity_id,quantity,source,effective_at,created_at) VALUES ${openingBalances
+      .map((item) => row([item.activityId, item.quantity, item.source, item.effectiveAt, timestamp]))
       .join(',')};`,
   ].join('\n');
 }

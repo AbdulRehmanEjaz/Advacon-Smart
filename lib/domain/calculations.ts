@@ -6,8 +6,16 @@ import type {
 export type Item = {
   id: string;
   activityId: string;
+  activityName?: string;
+  unit?: string;
   quantity: number;
   adjustments: { quantity: number; createdAt: string }[];
+};
+export type OpeningBalance = {
+  activityId: string;
+  quantity: number;
+  source: string;
+  effectiveAt: string;
 };
 export type Submission = {
   id: string;
@@ -84,38 +92,84 @@ export function progress(
 ) {
   const work = packages.map((p) => ({
     ...p,
-    progress: p.activities.reduce(
-      (n, a) =>
-        n +
-        (percent(totals[a.id] || 0, targetFor(a, settings)) *
-          Number(a.weight)) /
-          100,
+    earned: p.activities.reduce(
+      (n, a) => n + (percent(totals[a.id] || 0, targetFor(a, settings) || 100) * Number(a.weight)) / 100,
       0,
     ),
+    progress: 0,
   }));
+  for (const item of work)
+    item.progress = item.weight > 0 ? (item.earned / Number(item.weight)) * 100 : 0;
   return {
     work,
-    overall: work.reduce(
-      (n, p) => n + (p.progress * Number(p.weight)) / 100,
-      0,
-    ),
+    overall: work.reduce((n, p) => n + p.earned, 0),
   };
+}
+
+export function calculateKpiProgress(
+  packages: PackageDefinition[],
+  openingBalances: OpeningBalance[],
+  submissions: Submission[],
+  settings: Settings,
+  asOf?: string,
+) {
+  const approved = approvedTotals(submissions, asOf);
+  const opening = openingBalances.reduce<Record<string, number>>((totals, item) => {
+    if (!asOf || item.effectiveAt.slice(0, 10) <= asOf)
+      totals[item.activityId] = (totals[item.activityId] || 0) + Number(item.quantity);
+    return totals;
+  }, {});
+  const totals = { ...opening };
+  for (const [activityId, quantity] of Object.entries(approved))
+    totals[activityId] = (totals[activityId] || 0) + quantity;
+  const groups = packages
+    .filter((item) => item.active !== false)
+    .map((workPackage) => {
+      const activities = workPackage.activities
+        .filter((item) => item.active !== false)
+        .map((activity) => {
+          const target = targetFor(activity, settings) || 100;
+          const quantity = totals[activity.id] || 0;
+          const completion = percent(quantity, target);
+          const earned = (completion * Number(activity.weight)) / 100;
+          return {
+            ...activity,
+            target,
+            quantity,
+            remaining: Math.max(0, target - quantity),
+            completion,
+            earned,
+          };
+        });
+      const weight = activities.reduce((sum, activity) => sum + Number(activity.weight), 0);
+      const earned = activities.reduce((sum, activity) => sum + activity.earned, 0);
+      return {
+        ...workPackage,
+        activities,
+        weight,
+        earned,
+        progress: weight > 0 ? (earned / weight) * 100 : 0,
+      };
+    });
+  const totalWeight = groups.reduce((sum, group) => sum + group.weight, 0);
+  const overall = groups.reduce((sum, group) => sum + group.earned, 0);
+  return { groups, work: groups, totals, totalWeight, overall, remaining: Math.max(0, totalWeight - overall) };
 }
 export function plannedProgress(
   packages: PackageDefinition[],
   day: string,
 ): number | null {
   const weighted = packages.flatMap((p) =>
-    p.activities.filter((a) => Number(a.weight) > 0).map((a) => ({ p, a })),
+    p.activities.filter((a) => Number(a.weight) > 0).map((a) => ({ a })),
   );
   if (!weighted.length || weighted.some(({ a }) => !a.schedule)) return null;
   const at = new Date(day).getTime();
-  return weighted.reduce((n, { p, a }) => {
+  return weighted.reduce((n, { a }) => {
     const start = new Date(a.schedule!.start).getTime(),
       end = new Date(a.schedule!.finish).getTime();
     const fraction =
       at < start ? 0 : at >= end ? 1 : (at - start) / (end - start);
-    return n + (fraction * Number(a.weight) * Number(p.weight)) / 100;
+    return n + fraction * Number(a.weight);
   }, 0);
 }
 export function readiness(block: Block, submissions: Submission[]) {

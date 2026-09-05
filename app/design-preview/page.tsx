@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { Workspace } from '@/components/workspace';
-import { baseline, packages, zones } from '@/lib/domain/baseline';
+import { baseline, openingBalances, packages, zones } from '@/lib/domain/baseline';
 import type { State } from '@/lib/types';
 export default async function Preview({
   searchParams,
@@ -23,6 +23,7 @@ export default async function Preview({
     },
     submissions: [],
     packages,
+    openingBalances,
     settings: baseline,
     blocks: zones.flatMap((z) =>
       Array.from({ length: z.count }, (_, i) => ({

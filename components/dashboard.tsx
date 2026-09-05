@@ -23,9 +23,8 @@ import {
   CartesianGrid,
 } from 'recharts';
 import {
-  approvedTotals,
+  calculateKpiProgress,
   plannedProgress,
-  progress,
   productivity,
   readiness,
 } from '@/lib/domain/calculations';
@@ -156,17 +155,18 @@ function AdminDashboard({
 }) {
   const [now] = useState(() => Date.now());
   const settings = state.settings!,
-    totals = approvedTotals(state.submissions),
-    calculated = progress(state.packages, totals, settings),
+    calculated = calculateKpiProgress(
+      state.packages,
+      state.openingBalances,
+      state.submissions,
+      settings,
+    ),
     planned = plannedProgress(state.packages, today()),
-    variance = planned == null ? null : calculated.overall - planned,
     pending = state.submissions.filter((s) => s.status === 'WAITING');
   const blocks = state.blocks.map((b) => readiness(b, state.submissions));
-  const ready = blocks.filter((b) => b.ready);
-  const readyCapacity = ready.reduce((n, b) => n + (b.capacity || 0), 0);
   const production = productivity(
     state.submissions,
-    'placed',
+    'kpi-translocation-placement',
     today(),
     Number(settings.translocationTarget),
   );
@@ -196,37 +196,17 @@ function AdminDashboard({
           day: 'numeric',
           timeZone: 'UTC',
         }),
-        actual: progress(
+        actual: calculateKpiProgress(
           state.packages,
-          approvedTotals(state.submissions, date),
+          state.openingBalances,
+          state.submissions,
           settings,
+          date,
         ).overall,
         planned: plannedProgress(state.packages, date),
       };
     });
   }, [state, range, settings]);
-  const compact = [
-    ['Irrigation', totals.pipe || 0, Number(settings.irrigationTarget), 'm'],
-    ['Support Posts', totals.posts || 0, Number(settings.postTarget), 'posts'],
-    [
-      'Approved Rows',
-      totals.approved_rows || 0,
-      Number(settings.rowTarget),
-      'rows',
-    ],
-    [
-      'Trees Relocated',
-      totals.placed || 0,
-      Number(settings.translocationTarget),
-      'trees',
-    ],
-    [
-      'New Trees Accepted',
-      totals.accepted || 0,
-      Number(settings.newTreeTarget),
-      'trees',
-    ],
-  ] as const;
   return (
     <>
       <div className="kpi-grid">
@@ -237,24 +217,14 @@ function AdminDashboard({
           featured
         />
         <Kpi
-          title="Planned Progress"
-          value={planned == null ? '—' : `${planned.toFixed(2)}%`}
-          footer={
-            planned == null ? 'Schedule not configured' : 'Planned as of today'
-          }
+          title="Remaining Progress"
+          value={`${calculated.remaining.toFixed(2)}%`}
+          footer="Until physical completion"
         />
         <Kpi
-          title="Schedule Variance"
-          value={
-            variance == null
-              ? '—'
-              : `${variance > 0 ? '+' : ''}${variance.toFixed(2)}%`
-          }
-          footer={
-            variance == null
-              ? 'Awaiting approved baseline'
-              : 'Actual vs planned · percentage points'
-          }
+          title="Total KPI Weight"
+          value={`${calculated.totalWeight.toFixed(0)}%`}
+          footer="24 approved KPI definitions"
         />
         <Kpi
           title="Pending Approval"
@@ -262,45 +232,43 @@ function AdminDashboard({
           footer="Foreman submissions"
         />
       </div>
-      <div className="mini-grid">
-        {compact.map(([title, value, target, unit]) => (
-          <div className="mini-kpi" key={title}>
-            <span>{title}</span>
-            <strong>
-              {number(value)}{' '}
-              <small>
-                /{' '}
-                {title === 'Trees Relocated' &&
-                settings.translocationTargetIsApproximate
-                  ? '≈ '
-                  : ''}
-                {number(target)}
-              </small>
-            </strong>
-            <small>
-              {(target ? Math.min(100, (value / target) * 100) : 0).toFixed(1)}%
-              · {unit}
-            </small>
+      <div className="mini-grid approved-groups">
+        {calculated.groups.map((group) => (
+          <div className="mini-kpi" key={group.id}>
+            <span>{group.name}</span>
+            <strong>{group.progress.toFixed(2)}%</strong>
+            <div className="progress-track"><span style={{ width: `${group.progress}%` }} /></div>
+            <small>{group.earned.toFixed(2)}% earned · {group.weight}% weight</small>
           </div>
         ))}
-        <div className="mini-kpi">
-          <span>Ready Blocks</span>
-          <strong>
-            {ready.length} <small>/ {settings.blockTarget}</small>
-          </strong>
-          <small>Released for placement</small>
-        </div>
-        <div className="mini-kpi">
-          <span>Ready Nursery Capacity</span>
-          <strong>
-            {((readyCapacity / Number(settings.designCapacity)) * 100).toFixed(
-              1,
-            )}
-            %
-          </strong>
-          <small>{number(readyCapacity)} available by design</small>
-        </div>
       </div>
+      <article className="card kpi-detail-card">
+        <div className="card-heading">
+          <div><h2 className="card-title">Approved KPI Progress</h2><p className="card-subtitle">Opening balance plus approved submissions and adjustments</p></div>
+          <span className="badge approved">Official</span>
+        </div>
+        <div className="table-scroll">
+          <table className="responsive-table">
+            <thead><tr><th>KPI</th><th>Target</th><th>Progress</th><th>Remaining</th><th>Weight</th><th>Completion</th><th>Earned</th></tr></thead>
+            <tbody>
+              {calculated.groups.flatMap((group) => [
+                <tr className="kpi-group-row" key={`group-${group.id}`}><td colSpan={7}><strong>{group.name}</strong> · {group.progress.toFixed(2)}% complete</td></tr>,
+                ...group.activities.map((activity) => (
+                  <tr key={activity.id}>
+                    <td data-label="KPI">{activity.name}</td>
+                    <td data-label="Target">{number(activity.target)} {activity.unit}</td>
+                    <td data-label="Progress">{number(activity.quantity)}</td>
+                    <td data-label="Remaining">{number(activity.remaining)}</td>
+                    <td data-label="Weight">{activity.weight.toFixed(2)}%</td>
+                    <td data-label="Completion">{activity.completion.toFixed(2)}%</td>
+                    <td data-label="Earned">{activity.earned.toFixed(4)}%</td>
+                  </tr>
+                )),
+              ])}
+            </tbody>
+          </table>
+        </div>
+      </article>
       <div className="dashboard-grid">
         <article className="card analytics">
           <div className="card-heading">
@@ -402,15 +370,6 @@ function AdminDashboard({
             <Leaf size={16} color="#639374" />
           </div>
           {calculated.work
-            .filter((p) =>
-              [
-                'irrigation',
-                'support',
-                'translocation',
-                'new-trees',
-                'testing',
-              ].includes(p.id),
-            )
             .map((p) => {
               const Icon =
                 p.id === 'irrigation'

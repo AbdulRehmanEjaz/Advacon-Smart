@@ -17,7 +17,7 @@ import { Editor, type Field, Modal, ProgressForm } from './progress-form';
 import { Supervisors } from './supervisors';
 import {
   approvedTotals,
-  progress,
+  calculateKpiProgress,
   productivity,
   readiness,
   targetFor,
@@ -54,8 +54,10 @@ export function DataPages(props: Props) {
   const admin = state.user.role === 'ADMIN';
   const pkg = state.packages.find((p) => p.id === view);
   let content;
-  if (['approvals', 'daily', 'reports', 'search'].includes(view))
+  if (['approvals', 'daily', 'search'].includes(view))
     content = <Submissions {...props} />;
+  else if (view === 'reports')
+    content = <OfficialReport state={state} />;
   else if (view === 'blocks')
     content = (
       <>
@@ -173,12 +175,17 @@ export function DataPages(props: Props) {
     );
   else if (pkg && admin) {
     const settings = state.settings!,
-      p = progress([pkg], totals, settings).work[0],
+      p = calculateKpiProgress(
+        [pkg],
+        state.openingBalances,
+        state.submissions,
+        settings,
+      ).work[0],
       tree = pkg.id === 'translocation',
       newTree = pkg.id === 'new-trees',
       production = productivity(
         state.submissions,
-        tree ? 'placed' : 'accepted',
+        tree ? 'kpi-translocation-placement' : 'kpi-new-handover',
         today(),
         Number(tree ? settings.translocationTarget : settings.newTreeTarget),
       );
@@ -216,7 +223,7 @@ export function DataPages(props: Props) {
             value={
               tree || newTree
                 ? number(production.remaining)
-                : `${((p.progress * Number(pkg.weight)) / 100).toFixed(2)}%`
+                : `${p.earned.toFixed(2)}%`
             }
             footer={
               tree
@@ -373,181 +380,26 @@ export function DataPages(props: Props) {
       </section>
     );
   else if (view === 'settings') {
-    const settings = state.settings!;
     content = (
       <section className="card">
         <div className="card-heading">
           <div>
-            <h2 className="card-title">Approved Project Baseline</h2>
+            <h2 className="card-title">Approved KPI Baseline</h2>
             <p className="card-subtitle">
-              Changes affect the calculation engine and are permanently audited.
+              Official targets and direct project weights are controlled and read-only.
             </p>
           </div>
-          <button
-            className="secondary"
-            disabled={preview}
-            onClick={() =>
-              setEdit({
-                title: 'Update project baseline',
-                description:
-                  'Package weights must add to 100%. Support requires exactly five posts per row.',
-                path: 'settings',
-                initial: {
-                  ...settings,
-                  ...Object.fromEntries(
-                    state.packages.map((p) => [p.id, Number(p.weight)]),
-                  ),
-                  reason: '',
-                },
-                fields: [
-                  {
-                    key: 'translocationTarget',
-                    label: 'Translocation target',
-                    type: 'number',
-                    required: true,
-                    min: 1,
-                  },
-                  {
-                    key: 'translocationTargetIsApproximate',
-                    label: 'Translocation target is approximate',
-                    type: 'checkbox',
-                  },
-                  {
-                    key: 'newTreeTarget',
-                    label: 'New tree target',
-                    type: 'number',
-                    required: true,
-                    min: 1,
-                  },
-                  {
-                    key: 'irrigationTarget',
-                    label: 'Irrigation target (m)',
-                    type: 'number',
-                    required: true,
-                    min: 1,
-                    step: '.001',
-                  },
-                  {
-                    key: 'rowTarget',
-                    label: 'Support rows',
-                    type: 'number',
-                    required: true,
-                    min: 1,
-                  },
-                  {
-                    key: 'postTarget',
-                    label: 'Support posts',
-                    type: 'number',
-                    required: true,
-                    min: 1,
-                  },
-                  {
-                    key: 'productivityMin',
-                    label: 'Daily productivity minimum',
-                    type: 'number',
-                    required: true,
-                    min: 1,
-                  },
-                  {
-                    key: 'productivityMax',
-                    label: 'Daily productivity maximum',
-                    type: 'number',
-                    required: true,
-                    min: 1,
-                  },
-                  {
-                    key: 'pendingHours',
-                    label: 'Approval alert after (hours)',
-                    type: 'number',
-                    required: true,
-                    min: 1,
-                  },
-                  ...state.packages.map((p) => ({
-                    key: p.id,
-                    label: p.name + ' weight (%)',
-                    type: 'number' as const,
-                    required: true,
-                    min: 0,
-                    max: 100,
-                    step: '.000001',
-                  })),
-                  commentField,
-                ],
-                transform: (v) => ({
-                  ...v,
-                  weights: state.packages.map((p) => ({
-                    id: p.id,
-                    weight: Number(v[p.id]),
-                  })),
-                }),
-              })
-            }
-          >
-            Edit baseline
-          </button>
+          <span className="badge approved">Locked · 100%</span>
         </div>
-        <div className="detail-grid">
-          {Object.entries(settings)
-            .filter(([k]) => !['projectId', 'updatedAt'].includes(k))
-            .map(([key, value]) => (
-              <div key={key}>
-                <dt>{key.replace(/([A-Z])/g, ' $1')}</dt>
-                <dd>
-                  {typeof value === 'boolean'
-                    ? value
-                      ? 'Yes'
-                      : 'No'
-                    : number(value as number)}
-                </dd>
+        {state.packages.map((p) => (
+          <div className="form-section" key={p.id}>
+            <div className="card-heading"><strong>{p.name}</strong><span>{number(p.weight)}%</span></div>
+            {p.activities.map((a) => (
+              <div className="package-row" key={a.id}>
+                <span style={{ flex: 1 }}>{a.name}<small className="card-subtitle">Target: {number(a.target || 100)} {a.unit}</small></span>
+                <strong>{number(a.weight)}%</strong>
               </div>
             ))}
-        </div>
-        <h3 className="card-title">Work package weights</h3>
-        {state.packages.map((p) => (
-          <div className="package-row" key={p.id}>
-            <span style={{ flex: 1 }}>{p.name}</span>
-            <strong>{number(p.weight)}%</strong>
-            <button
-              className="text-button"
-              disabled={preview}
-              onClick={() =>
-                setEdit({
-                  title: 'Internal activity weights',
-                  description:
-                    p.name +
-                    ' · all stage weights must total 100%. Changes are audited.',
-                  path: 'activity-weights',
-                  initial: {
-                    ...Object.fromEntries(
-                      p.activities.map((a) => [a.id, Number(a.weight)]),
-                    ),
-                    reason: '',
-                  },
-                  fields: [
-                    ...p.activities.map((a) => ({
-                      key: a.id,
-                      label: a.name + ' (%)',
-                      type: 'number' as const,
-                      required: true,
-                      min: 0,
-                      max: 100,
-                      step: '.000001',
-                    })),
-                    commentField,
-                  ],
-                  transform: (v) => ({
-                    packageId: p.id,
-                    weights: p.activities.map((a) => ({
-                      id: a.id,
-                      weight: Number(v[a.id]),
-                    })),
-                    reason: v.reason,
-                  }),
-                })
-              }
-            >
-              Edit stages
-            </button>
           </div>
         ))}
       </section>
@@ -573,6 +425,43 @@ export function DataPages(props: Props) {
         <Editor {...edit} onClose={() => setEdit(null)} onSaved={refresh} />
       )}
     </>
+  );
+}
+function OfficialReport({ state }: { state: State }) {
+  const result = calculateKpiProgress(
+    state.packages,
+    state.openingBalances,
+    state.submissions,
+    state.settings!,
+  );
+  return (
+    <section className="card">
+      <div className="card-heading">
+        <div><h2 className="card-title">Official Approved Progress Report</h2><p className="card-subtitle">Includes normalized opening balances and approved future work only.</p></div>
+        <strong>{result.overall.toFixed(2)}%</strong>
+      </div>
+      <div className="table-scroll">
+        <table className="responsive-table">
+          <thead><tr><th>Group / KPI</th><th>Target</th><th>Approved progress</th><th>Remaining</th><th>Weight</th><th>Completion</th><th>Earned</th></tr></thead>
+          <tbody>
+            {result.groups.flatMap((group) => [
+              <tr className="kpi-group-row" key={`report-${group.id}`}><td colSpan={7}><strong>{group.name}</strong> · {group.earned.toFixed(4)}% earned</td></tr>,
+              ...group.activities.map((activity) => (
+                <tr key={activity.id}>
+                  <td data-label="KPI">{activity.name}</td>
+                  <td data-label="Target">{number(activity.target)} {activity.unit}</td>
+                  <td data-label="Approved progress">{number(activity.quantity)}</td>
+                  <td data-label="Remaining">{number(activity.remaining)}</td>
+                  <td data-label="Weight">{activity.weight}%</td>
+                  <td data-label="Completion">{activity.completion.toFixed(2)}%</td>
+                  <td data-label="Earned">{activity.earned.toFixed(4)}%</td>
+                </tr>
+              )),
+            ])}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 function Submissions({
@@ -819,7 +708,7 @@ function Submissions({
                 <td data-label="Work date">{s.workDate.slice(0, 10)}</td>
                 <td data-label="Block">{s.blockId}</td>
                 <td data-label="Work package">
-                  {state.packages.find((p) => p.id === s.packageId)?.name}
+                  {state.packages.find((p) => p.id === s.packageId)?.name || 'Legacy work package'}
                 </td>
                 <td data-label="Status">
                   <Badge status={s.status} />
@@ -958,7 +847,7 @@ function Review({
         </div>
         <div>
           <dt>Work package</dt>
-          <dd>{state.packages.find((p) => p.id === s.packageId)?.name}</dd>
+          <dd>{state.packages.find((p) => p.id === s.packageId)?.name || 'Legacy work package'}</dd>
         </div>
         <div>
           <dt>Submitted</dt>
@@ -985,9 +874,9 @@ function Review({
               .find((a) => a.id === i.activityId);
             return (
               <tr key={i.id}>
-                <td data-label="Activity">{a?.name}</td>
+                <td data-label="Activity">{a?.name || i.activityName || i.activityId}</td>
                 <td data-label="Submitted">
-                  {number(i.quantity)} {a?.unit}
+                  {number(i.quantity)} {a?.unit || i.unit}
                 </td>
                 <td data-label="Effective">
                   {number(

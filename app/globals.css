@@ -1475,13 +1475,25 @@ td small {
     transition: none !important;
   }
 }
-@media (min-width: 901px) {
-  .sidebar {
-    position: sticky;
-    top: 12px;
-    max-height: calc(100dvh - 48px);
-    overflow-y: auto;
-    scrollbar-width: thin;
+.approved-groups {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.approved-groups .mini-kpi {
+  min-height: 118px;
+}
+.approved-groups .progress-track {
+  margin: 8px 0 6px;
+}
+.kpi-detail-card {
+  margin-top: 12px;
+}
+.kpi-group-row td {
+  background: #f2f7f4;
+  color: #175c3b;
+}
+@media (max-width: 900px) {
+  .approved-groups {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @media (max-width: 600px) {

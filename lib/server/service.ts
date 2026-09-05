@@ -4,9 +4,10 @@ import { database, first, id, json, now, statement } from './d1';
 import {
   approvedTotals,
   assertStageOrder,
+  calculateKpiProgress,
   readiness,
   targetFor,
-  validateWeights,
+  type OpeningBalance,
   type Submission,
   type Block,
 } from '../domain/calculations';
@@ -25,6 +26,7 @@ type Core = {
   zones: { id: string; capacity: number; spacing: string }[];
   users: User[];
   inspections: Inspection[];
+  openingBalances: OpeningBalance[];
 };
 
 export const serial = <T>(value: unknown): T => JSON.parse(JSON.stringify(value));
@@ -74,10 +76,12 @@ async function loadCore(supervisorId?: string): Promise<Core> {
   const results = await db.batch([
     db.prepare(settingsSql),
     db.prepare(
-      `SELECT id,name,weight,sort_order AS "order" FROM work_packages ORDER BY sort_order`,
+      `SELECT id,name,weight,sort_order AS "order",active,kpi_version AS kpiVersion
+       FROM work_packages WHERE active=1 ORDER BY sort_order`,
     ),
     db.prepare(`SELECT a.id,a.package_id AS packageId,a.name,a.unit,
-      a.target_key AS targetKey,a.target,a.weight,
+      a.target_key AS targetKey,a.target,COALESCE(a.direct_project_weight,a.weight) AS weight,
+      a.active,a.kpi_version AS kpiVersion,
       sc.start AS scheduleStart,sc.finish AS scheduleFinish
       FROM activities a LEFT JOIN schedule_activities sc ON sc.activity_id=a.id`),
     db.prepare(`SELECT id,name,zone_id AS zoneId,capacity,
@@ -105,6 +109,8 @@ async function loadCore(supervisorId?: string): Promise<Core> {
       FROM inspections ORDER BY date DESC`),
     db.prepare(`SELECT id,inspection_id AS inspectionId,description,responsible,
       due_date AS dueDate,closed_at AS closedAt,created_at AS createdAt FROM observations`),
+    db.prepare(`SELECT activity_id AS activityId,quantity,source,effective_at AS effectiveAt
+      FROM kpi_opening_balances ORDER BY activity_id`),
   ]);
   const rows = results.map((result) => result.results as Row[]);
   const settingsRow = rows[0][0];
@@ -123,6 +129,8 @@ async function loadCore(supervisorId?: string): Promise<Core> {
     targetKey: String(activity.targetKey),
     target: activity.target == null ? null : Number(activity.target),
     weight: Number(activity.weight),
+    active: bool(activity.active),
+    kpiVersion: String(activity.kpiVersion),
     schedule: activity.scheduleStart
       ? {
           start: String(activity.scheduleStart),
@@ -135,13 +143,19 @@ async function loadCore(supervisorId?: string): Promise<Core> {
     name: String(item.name),
     weight: Number(item.weight),
     order: Number(item.order),
-    activities: activities.filter((activity) => activity.packageId === item.id),
+    active: bool(item.active),
+    kpiVersion: String(item.kpiVersion),
+    activities: activities.filter(
+      (activity) => activity.packageId === item.id && activity.active,
+    ),
   }));
   const adjustments = rows[7];
   const items = rows[6].map((item) => ({
     id: String(item.id),
     submissionId: String(item.submissionId),
     activityId: String(item.activityId),
+    activityName: activities.find((activity) => activity.id === item.activityId)?.name,
+    unit: activities.find((activity) => activity.id === item.activityId)?.unit,
     quantity: Number(item.quantity),
     adjustments: adjustments
       .filter((adjustment) => adjustment.itemId === item.id)
@@ -199,6 +213,12 @@ async function loadCore(supervisorId?: string): Promise<Core> {
     })),
     users: supervisorId ? [] : usersFromRows(rows[10], rows[11]),
     inspections: supervisorId ? [] : inspectionsFromRows(rows[12], rows[13]),
+    openingBalances: rows[14].map((entry) => ({
+      activityId: String(entry.activityId),
+      quantity: Number(entry.quantity),
+      source: String(entry.source),
+      effectiveAt: String(entry.effectiveAt),
+    })),
   };
 }
 
@@ -349,16 +369,25 @@ function validateCandidate(
 ) {
   try {
     for (const block of core.blocks)
-      assertStageOrder(
-        approvedTotals(submissions.filter((item) => item.blockId === block.id)),
-      );
+      {
+        const totals = approvedTotals(
+          submissions.filter((item) => item.blockId === block.id),
+        );
+        if (Object.keys(totals).some((key) => !key.startsWith('kpi-')))
+          assertStageOrder(totals);
+      }
   } catch (error) {
     throw new HttpError(
       400,
       error instanceof Error ? error.message : 'Invalid stage quantities.',
     );
   }
-  const totals = approvedTotals(submissions);
+  const totals = calculateKpiProgress(
+    core.packages,
+    core.openingBalances,
+    submissions,
+    core.settings,
+  ).totals;
   for (const activity of core.packages.flatMap((item) => item.activities))
     if (
       (totals[activity.id] || 0) > targetFor(activity, core.settings) &&
@@ -383,6 +412,30 @@ function validateCandidate(
           (totalsForBlock.decoders || 0) >= 1,
         'Commissioning requires the configured block pipe length, backfill, valve and decoder.',
       );
+  }
+}
+
+function validateSubmittedRemaining(
+  core: Core,
+  items: { activityId: string; quantity: number }[],
+) {
+  const official = calculateKpiProgress(
+    core.packages,
+    core.openingBalances,
+    core.submissions,
+    core.settings,
+  );
+  for (const item of items) {
+    const activity = core.packages
+      .flatMap((workPackage) => workPackage.activities)
+      .find((candidate) => candidate.id === item.activityId);
+    requireThat(activity, 'Select an active approved KPI.');
+    const target = targetFor(activity, core.settings) || 100;
+    const current = official.totals[item.activityId] || 0;
+    requireThat(
+      current + item.quantity <= target + 0.000001,
+      `${activity.name} has only ${Math.max(0, target - current).toLocaleString()} ${activity.unit} remaining.`,
+    );
   }
 }
 
@@ -458,9 +511,10 @@ export async function mutate(path: string, req: Request, user: Actor) {
         activity.unit === 'm' || Number.isInteger(item.quantity),
         'Use whole numbers for trees, rows, posts and milestones.',
       );
-      if (activity.unit === 'milestone')
+      if (activity.unit.toLowerCase() === 'milestone')
         requireThat(item.quantity === 1, 'Milestones must be submitted as one completed item.');
     }
+    validateSubmittedRemaining(core, data.items);
     if (user.role !== 'ADMIN')
       requireThat(!data.overrideReason, 'Only administrators can override readiness.');
     checkPlacement(core, block, data.items, user, data.overrideReason);
@@ -629,7 +683,8 @@ export async function mutate(path: string, req: Request, user: Actor) {
       Number(item.quantity) + item.adjustments.reduce((sum, entry) => sum + Number(entry.quantity), 0) + data.quantity >= 0,
       'Adjustment cannot make this item negative.',
     );
-    const activity = core.packages.flatMap((item) => item.activities).find((candidate) => candidate.id === item.activityId)!;
+    const activity = core.packages.flatMap((item) => item.activities).find((candidate) => candidate.id === item.activityId);
+    requireThat(activity, 'Only active approved KPI quantities can be adjusted.');
     requireThat(activity.unit === 'm' || Number.isInteger(data.quantity), 'Use whole quantities for this activity.');
     const candidate = core.submissions.map((entry) => ({
       ...entry,
@@ -773,32 +828,19 @@ export async function mutate(path: string, req: Request, user: Actor) {
   }
 
   if (path === 'activity-weights') {
-    const data = z.object({ packageId: z.string(), weights: z.array(z.object({ id: z.string(), weight: z.number().min(0).max(100) })), reason }).parse(body);
-    requireThat(validateWeights(data.weights), 'Internal activity weights must total exactly 100%.');
-    if (data.packageId === 'translocation') requireThat(data.weights.every((item) => item.weight === (item.id === 'placed' ? 100 : 0)), 'Official translocation progress must remain based only on correctly placed trees.');
-    const core = await loadCore();
-    const before = core.packages.find((item) => item.id === data.packageId)?.activities || [];
-    requireThat(before.length === data.weights.length && data.weights.every((item) => before.some((activity) => activity.id === item.id)), 'Include every package activity exactly once.');
-    await database().batch([
-      ...data.weights.map((item) => statement('UPDATE activities SET weight=? WHERE id=? AND package_id=?', item.weight,item.id,data.packageId)),
-      auditStatement(user, 'ACTIVITY_WEIGHTS_UPDATED', 'WorkPackage', data.packageId, before, data),
-    ]);
-    return { ok: true };
+    throw new HttpError(403, 'Approved KPI targets and project weights are read-only.');
   }
 
   if (path === 'settings') {
     const positive = z.number().int().positive();
-    const data = z.object({ translocationTarget: positive, newTreeTarget: positive, irrigationTarget: z.number().positive(), rowTarget: positive, postTarget: positive, productivityMin: positive, productivityMax: positive, pendingHours: positive, translocationTargetIsApproximate: z.boolean(), weights: z.array(z.object({ id: z.string(), weight: z.number().min(0).max(100) })), reason }).parse(body);
-    requireThat(validateWeights(data.weights), 'Package weights must total exactly 100%.');
+    const data = z.object({ translocationTarget: positive, newTreeTarget: positive, irrigationTarget: z.number().positive(), rowTarget: positive, postTarget: positive, productivityMin: positive, productivityMax: positive, pendingHours: positive, translocationTargetIsApproximate: z.boolean(), reason }).parse(body);
     requireThat(data.postTarget === data.rowTarget * 5, 'Support baseline requires five posts per row.');
     requireThat(data.productivityMax >= data.productivityMin, 'Productivity maximum must be at least the minimum.');
     const core = await loadCore();
-    requireThat(data.weights.length === core.packages.length && data.weights.every((item) => core.packages.some((workPackage) => workPackage.id === item.id)), 'Include each work package once.');
     validateCandidate(core, core.submissions, user);
     requireThat(core.blocks.reduce((sum, item) => sum + Number(item.irrigationTarget || 0), 0) <= data.irrigationTarget && core.blocks.reduce((sum, item) => sum + (item.supportRows || 0), 0) <= data.rowTarget, 'Baseline cannot be below allocated block quantities.');
     await database().batch([
       statement(`UPDATE project_settings SET translocation_target=?,translocation_target_is_approximate=?,new_tree_target=?,irrigation_target=?,row_target=?,post_target=?,productivity_min=?,productivity_max=?,pending_hours=?,updated_at=? WHERE project_id='tree-project'`, data.translocationTarget,Number(data.translocationTargetIsApproximate),data.newTreeTarget,data.irrigationTarget,data.rowTarget,data.postTarget,data.productivityMin,data.productivityMax,data.pendingHours,now()),
-      ...data.weights.map((item) => statement('UPDATE work_packages SET weight=? WHERE id=?', item.weight,item.id)),
       auditStatement(user, 'BASELINE_UPDATED', 'Project', 'tree-project', core.settings, data),
     ]);
     return { ok: true };

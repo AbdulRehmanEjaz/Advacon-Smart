@@ -1,5 +1,5 @@
 import type { PackageDefinition, Settings } from './domain/baseline';
-import type { Block, Submission } from './domain/calculations';
+import type { Block, OpeningBalance, Submission } from './domain/calculations';
 export type User = {
   id: string;
   name: string;
@@ -35,6 +35,7 @@ export type State = {
   submissions: Submission[];
   blocks: Block[];
   packages: PackageDefinition[];
+  openingBalances: OpeningBalance[];
   settings?: Settings;
   users?: User[];
   zones?: { id: string; capacity: number; spacing: string }[];
