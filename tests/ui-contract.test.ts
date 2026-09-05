@@ -32,11 +32,23 @@ await test('detailed KPI register lives only on its dedicated fast workspace vie
   assert.match(dataPages, /view === 'kpi-progress'/);
 });
 
-await test('dashboard sections use natural flow without reserved grid rows', async () => {
+await test('dashboard uses a balanced package and activity grid without artificial sizing', async () => {
   const styles = await readFile(new URL('../app/globals.css', import.meta.url), 'utf8');
   assert.match(styles, /\.main-activity-dashboard\s*\{[^}]*height:\s*auto;[^}]*min-height:\s*0;/);
-  assert.doesNotMatch(styles, /\.packages-card\s*\{[^}]*grid-row:/);
-  assert.match(styles, /\.dashboard-support-grid\s*\{[^}]*align-items:\s*start;/);
+  assert.match(styles, /\.dashboard-primary-grid\s*\{[^}]*gap:\s*10px;[^}]*align-items:\s*start;[^}]*margin-bottom:\s*10px;/);
+  assert.match(styles, /\.packages-card\s*\{[^}]*grid-column:\s*1;[^}]*grid-row:\s*1;/);
+  assert.match(styles, /\.main-activity-dashboard\s*\{[^}]*grid-column:\s*2;[^}]*grid-row:\s*1;/);
+  assert.doesNotMatch(styles, /grid-template-areas:/);
+});
+
+await test('dashboard compacts top KPIs and keeps the live approval indicator on approvals only', async () => {
+  const dashboard = await readFile(new URL('../components/dashboard.tsx', import.meta.url), 'utf8');
+  const workspace = await readFile(new URL('../components/workspace.tsx', import.meta.url), 'utf8');
+  assert.match(dashboard, /title="Remaining Progress"[\s\S]*?href=\{href\('kpi-progress'\)\}[\s\S]*?arrowLabel="Open Approved KPI Progress"/);
+  assert.doesNotMatch(dashboard, /title="Pending Approval"/);
+  assert.equal(dashboard.match(/Work Packages/g)?.length, 1);
+  assert.match(dashboard, /<PackageProgressGauge value=\{p\.progress\} \/>/);
+  assert.equal(workspace.match(/pending > 0 && <i className="dot"/g)?.length, 1);
 });
 
 await test('new progress form has no active batch or photo controls', async () => {

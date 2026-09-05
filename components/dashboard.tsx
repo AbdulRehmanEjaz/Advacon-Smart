@@ -94,6 +94,34 @@ function ProgressGauge({ value }: { value: number }) {
     </article>
   );
 }
+function PackageProgressGauge({ value }: { value: number }) {
+  return (
+    <span
+      className="package-gauge"
+      aria-label={`${value.toFixed(1)} percent complete`}
+    >
+      <svg viewBox="0 0 100 58" aria-hidden="true">
+        <path
+          d="M 12 49 A 38 38 0 0 1 88 49"
+          fill="none"
+          stroke="#e5ece7"
+          strokeWidth="10"
+          strokeLinecap="round"
+        />
+        <path
+          d="M 12 49 A 38 38 0 0 1 88 49"
+          fill="none"
+          stroke="#168057"
+          strokeWidth="10"
+          strokeLinecap={value > 0 ? 'round' : 'butt'}
+          pathLength="100"
+          strokeDasharray={`${value} 100`}
+        />
+      </svg>
+      <strong>{value.toFixed(1)}%</strong>
+    </span>
+  );
+}
 export function Dashboard({
   state,
   href,
@@ -243,7 +271,7 @@ function AdminDashboard({
   }, [state, range, settings]);
   return (
     <>
-      <div className="kpi-grid">
+      <div className="kpi-grid dashboard-kpi-grid">
         <Kpi
           title="Overall Project Progress"
           value={`${calculated.overall.toFixed(2)}%`}
@@ -256,44 +284,43 @@ function AdminDashboard({
           title="Remaining Progress"
           value={`${calculated.remaining.toFixed(2)}%`}
           footer="Until physical completion"
-        />
-        <Kpi
-          title="Pending Approval"
-          value={number(pending.length)}
-          footer="Foreman submissions"
+          href={href('kpi-progress')}
+          arrowLabel="Open Approved KPI Progress"
         />
         <ProgressGauge value={calculated.overall} />
       </div>
-      <section
-        className="main-activity-dashboard"
-        aria-labelledby="main-activity-progress"
-      >
-        <div className="card-heading">
-          <div>
-            <h2 className="card-title" id="main-activity-progress">
-              Main Activity Progress
-            </h2>
-            <p className="card-subtitle">
-              Approved completion across all seven main activities
-            </p>
-          </div>
-        </div>
-        <div className="mini-grid approved-groups">
-          {calculated.groups.map((group) => (
-            <div className="mini-kpi" key={group.id}>
-              <span>{group.name}</span>
-              <strong>{group.progress.toFixed(2)}%</strong>
-              <div className="progress-track">
-                <span style={{ width: `${group.progress}%` }} />
+      <div className="dashboard-primary-grid">
+        <div className="dashboard-primary-main">
+          <section
+            className="main-activity-dashboard"
+            aria-labelledby="main-activity-progress"
+          >
+            <div className="card-heading">
+              <div>
+                <h2 className="card-title" id="main-activity-progress">
+                  Main Activity Progress
+                </h2>
+                <p className="card-subtitle">
+                  Approved completion across all seven main activities
+                </p>
               </div>
-              <small>
-                {group.earned.toFixed(2)}% earned · {group.weight}% weight
-              </small>
             </div>
-          ))}
-        </div>
-      </section>
-        <article className="card analytics">
+            <div className="mini-grid approved-groups">
+              {calculated.groups.map((group) => (
+                <div className="mini-kpi" key={group.id}>
+                  <span>{group.name}</span>
+                  <strong>{group.progress.toFixed(2)}%</strong>
+                  <div className="progress-track">
+                    <span style={{ width: `${group.progress}%` }} />
+                  </div>
+                  <small>
+                    {group.earned.toFixed(2)}% earned · {group.weight}% weight
+                  </small>
+                </div>
+              ))}
+            </div>
+          </section>
+          <article className="card analytics">
           <div className="card-heading">
             <div>
               <h2 className="card-title">Project Analytics</h2>
@@ -386,18 +413,45 @@ function AdminDashboard({
                 : 'Approved quantities only'}
             </span>
           </div>
-        </article>
-        <article className="card activity-card">
-          <div className="card-heading">
-            <h2 className="card-title">Recent Site Activity</h2>
-            <a href={href('daily')} className="text-button">
-              View all <ArrowUpRight size={12} />
-            </a>
-          </div>
-          <ActivityList state={state} />
-        </article>
-      <div className="dashboard-support-grid">
-        <article className="card packages-card">
+          </article>
+          <article className="card activity-card">
+            <div className="card-heading">
+              <h2 className="card-title">Recent Site Activity</h2>
+              <a href={href('daily')} className="text-button">
+                View all <ArrowUpRight size={12} />
+              </a>
+            </div>
+            <ActivityList state={state} />
+          </article>
+          <article className="card readiness-card">
+            <div className="card-heading">
+              <div>
+                <h2 className="card-title">Block Readiness</h2>
+                <p className="card-subtitle">Every block. Every prerequisite.</p>
+              </div>
+              <a href={href('blocks')} className="text-button">
+                View blocks <ArrowUpRight size={12} />
+              </a>
+            </div>
+            <div className="blocks-grid">
+              {blocks.map((b) => (
+                <a
+                  href={href('blocks') + `#${b.id}`}
+                  className={`block-tile ${b.ready ? 'ready' : b.hold ? 'hold' : b.status === 'PARTIALLY READY' ? 'partial' : ''}`}
+                  key={b.id}
+                  title={`Zone ${b.zoneId} · Capacity ${b.capacity ?? 'not set'} · ${b.reasons.join('. ')}`}
+                >
+                  <strong>{b.id}</strong>
+                  <small>
+                    {b.status === 'NOT STARTED' ? 'NOT STARTED' : b.status}
+                  </small>
+                </a>
+              ))}
+            </div>
+          </article>
+        </div>
+        <div className="dashboard-primary-side">
+          <article className="card packages-card">
           <div className="card-heading">
             <h2 className="card-title">Work Packages</h2>
             <Leaf size={16} color="#639374" />
@@ -437,6 +491,7 @@ function AdminDashboard({
                           : 'In progress'}
                     </small>
                   </div>
+                  <PackageProgressGauge value={p.progress} />
                 </a>
               );
             })}
@@ -478,45 +533,20 @@ function AdminDashboard({
               Review Approvals
             </a>
           </div>
-        </article>
-        <article className="card readiness-card">
-          <div className="card-heading">
-            <div>
-              <h2 className="card-title">Block Readiness</h2>
-              <p className="card-subtitle">Every block. Every prerequisite.</p>
+          </article>
+          <article className="card productivity-card">
+            <h2 className="card-title">Today’s Productivity</h2>
+            <div className="productivity-number">{number(production.today)}</div>
+            <p>Trees / Day</p>
+            <p>
+              Target: {settings.productivityMin}–{settings.productivityMax}
+            </p>
+            <div className="productivity-footer">
+              <Activity size={14} />
+              7-Day Avg: {number(production.average)}/day
             </div>
-            <a href={href('blocks')} className="text-button">
-              View blocks <ArrowUpRight size={12} />
-            </a>
-          </div>
-          <div className="blocks-grid">
-            {blocks.map((b) => (
-              <a
-                href={href('blocks') + `#${b.id}`}
-                className={`block-tile ${b.ready ? 'ready' : b.hold ? 'hold' : b.status === 'PARTIALLY READY' ? 'partial' : ''}`}
-                key={b.id}
-                title={`Zone ${b.zoneId} · Capacity ${b.capacity ?? 'not set'} · ${b.reasons.join('. ')}`}
-              >
-                <strong>{b.id}</strong>
-                <small>
-                  {b.status === 'NOT STARTED' ? 'NOT STARTED' : b.status}
-                </small>
-              </a>
-            ))}
-          </div>
-        </article>
-        <article className="card productivity-card">
-          <h2 className="card-title">Today’s Productivity</h2>
-          <div className="productivity-number">{number(production.today)}</div>
-          <p>Trees / Day</p>
-          <p>
-            Target: {settings.productivityMin}–{settings.productivityMax}
-          </p>
-          <div className="productivity-footer">
-            <Activity size={14} />
-            7-Day Avg: {number(production.average)}/day
-          </div>
-        </article>
+          </article>
+        </div>
       </div>
     </>
   );

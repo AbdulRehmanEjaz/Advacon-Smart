@@ -393,9 +393,10 @@ button:disabled {
 }
 .sidebar-foot {
   margin-top: 8px;
-  padding: 12px 8px 0;
+  padding: 12px 0 0;
 }
 .site-note {
+  width: 100%;
   border-radius: 14px;
   padding: 17px 13px;
   color: #def5e7;
@@ -565,6 +566,9 @@ h1 {
   gap: 13px;
   margin-bottom: 16px;
 }
+.dashboard-kpi-grid {
+  grid-template-columns: minmax(200px, 0.9fr) minmax(200px, 0.9fr) minmax(340px, 1.5fr);
+}
 .card {
   background: white;
   border: 1px solid #f0f3f1;
@@ -668,43 +672,78 @@ h1 {
   font-size: 9px;
   color: #819087;
 }
-.dashboard-support-grid {
+.dashboard-primary-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(420px, 1.7fr) minmax(210px, 0.8fr);
-  gap: 14px;
+  grid-template-columns: minmax(420px, 1.2fr) minmax(380px, 1fr);
+  gap: 10px;
   align-items: start;
+  margin-bottom: 10px;
 }
-.analytics {
-  margin-bottom: 14px;
+.dashboard-primary-main,
+.dashboard-primary-side {
+  display: contents;
+}
+.packages-card {
+  grid-column: 1;
+  grid-row: 1;
 }
 .main-activity-dashboard {
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
   height: auto;
   min-height: 0;
-  margin-bottom: 14px;
+  margin-bottom: 0;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+}
+.analytics,
+.activity-card,
+.readiness-card,
+.productivity-card {
+  grid-column: 1 / 3;
+}
+.analytics {
+  grid-row: 2;
+}
+.activity-card {
+  grid-row: 3;
+}
+.readiness-card {
+  grid-row: 4;
+}
+.productivity-card {
+  grid-row: 5;
 }
 .main-activity-dashboard .mini-grid {
   margin-bottom: 0;
 }
-.activity-card {
-  margin-bottom: 14px;
+.main-activity-dashboard .approved-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-auto-rows: minmax(118px, 1fr);
+  flex: 1;
+}
+.approved-groups .mini-kpi {
+  min-width: 0;
 }
 .gauge-card {
   grid-column: 2;
 }
 .kpi-grid .gauge-compact {
   grid-column: auto;
-  padding: 14px 18px;
+  padding: 14px 22px;
 }
 .gauge-compact .gauge-wrap {
-  max-width: 150px;
+  max-width: 235px;
   margin: 2px auto 0;
 }
 .gauge-compact .gauge-number {
   bottom: 2px;
 }
 .gauge-compact .gauge-number strong {
-  font-size: 23px;
+  font-size: 28px;
 }
 .readiness-card {
   min-width: 0;
@@ -776,9 +815,10 @@ h1 {
 }
 .package-row {
   display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  padding: 13px 0;
+  gap: 14px;
+  align-items: center;
+  min-height: 78px;
+  padding: 10px 0;
   border-bottom: 1px solid #f0f3f1;
 }
 .package-row:last-child {
@@ -809,6 +849,25 @@ h1 {
 .package-meta small {
   font-size: 9px;
   color: #92a097;
+}
+.package-gauge {
+  position: relative;
+  width: 94px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 94px;
+}
+.package-gauge svg {
+  width: 94px;
+  height: 58px;
+}
+.package-gauge strong {
+  position: absolute;
+  bottom: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #153e29;
 }
 .progress-track {
   height: 4px;
@@ -1257,11 +1316,11 @@ td small {
   .mini-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
-  .dashboard-support-grid {
-    grid-template-columns: 1fr 1fr;
+  .dashboard-kpi-grid {
+    grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(280px, 1.35fr);
   }
-  .dashboard-support-grid .readiness-card {
-    grid-column: 1/3;
+  .dashboard-primary-grid {
+    grid-template-columns: minmax(360px, 1.15fr) minmax(320px, 1fr);
   }
   .blocks-grid {
     grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1310,6 +1369,12 @@ td small {
   }
   .kpi-grid {
     gap: 9px;
+  }
+  .dashboard-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .dashboard-kpi-grid .gauge-compact {
+    grid-column: 1/3;
   }
   .user-info strong {
     max-width: 110px;
@@ -1381,10 +1446,24 @@ td small {
   .mini-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .approved-groups {
+    display: grid;
+  }
   .mini-kpi:last-child {
     grid-column: 1/3;
   }
-  .dashboard-support-grid,
+  .dashboard-primary-grid {
+    grid-template-columns: 1fr;
+  }
+  .packages-card,
+  .main-activity-dashboard,
+  .analytics,
+  .activity-card,
+  .readiness-card,
+  .productivity-card {
+    grid-column: 1;
+    grid-row: auto;
+  }
   .two-columns {
     display: flex;
     flex-direction: column;
@@ -1448,8 +1527,12 @@ td small {
   }
 }
 @media (max-width: 420px) {
-  .kpi-grid {
+  .kpi-grid,
+  .dashboard-kpi-grid {
     grid-template-columns: 1fr;
+  }
+  .dashboard-kpi-grid .gauge-compact {
+    grid-column: auto;
   }
   .toolbar-right .user-info {
     display: none;

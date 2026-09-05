@@ -354,7 +354,6 @@ export function Workspace({
               href={href(isAdmin ? 'audit' : 'daily')}
             >
               <Bell />
-              {pending > 0 && <i className="dot" />}
             </a>
             <div className="user-info">
               <span className="avatar">{initials(state.user.name)}</span>
