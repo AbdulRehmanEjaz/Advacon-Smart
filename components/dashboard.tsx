@@ -29,6 +29,8 @@ import {
   readiness,
 } from '@/lib/domain/calculations';
 import { type State, number, today, initials } from '@/lib/types';
+const progressLabel = (value: number) =>
+  `${Math.abs(value - 100) < 0.00001 ? '100' : value.toFixed(2)}%`;
 export function Badge({ status }: { status: string }) {
   return (
     <span className={`badge ${status.toLowerCase()}`}>
@@ -79,7 +81,7 @@ function ProgressGauge({ value }: { value: number }) {
     <article className="card gauge-card gauge-compact">
       <h2 className="card-title">Overall Project Progress</h2>
       <div className="gauge-wrap">
-        <svg viewBox="0 0 240 142" aria-label={`${value.toFixed(2)} percent physical progress`}>
+        <svg viewBox="0 0 240 142" aria-label={`${progressLabel(value)} physical progress`}>
           <defs>
             <pattern id="remaining-top" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(40)">
               <rect width="5" height="5" fill="#f2f5f2" />
@@ -89,7 +91,7 @@ function ProgressGauge({ value }: { value: number }) {
           <path d="M 25 120 A 95 95 0 0 1 215 120" fill="none" stroke="url(#remaining-top)" strokeWidth="29" strokeLinecap="round" />
           <path d="M 25 120 A 95 95 0 0 1 215 120" fill="none" stroke="#168057" strokeWidth="29" strokeLinecap={value > 0 ? 'round' : 'butt'} pathLength="100" strokeDasharray={`${value} 100`} />
         </svg>
-        <div className="gauge-number"><strong>{value.toFixed(2)}%</strong><small>Physical Progress</small></div>
+        <div className="gauge-number"><strong>{progressLabel(value)}</strong><small>Physical Progress</small></div>
       </div>
     </article>
   );
@@ -98,7 +100,7 @@ function PackageProgressGauge({ value }: { value: number }) {
   return (
     <span
       className="package-gauge"
-      aria-label={`${value.toFixed(1)} percent complete`}
+      aria-label={`${progressLabel(value)} complete`}
     >
       <svg viewBox="0 0 100 58" aria-hidden="true">
         <path
@@ -118,7 +120,7 @@ function PackageProgressGauge({ value }: { value: number }) {
           strokeDasharray={`${value} 100`}
         />
       </svg>
-      <strong>{value.toFixed(1)}%</strong>
+      <strong>{progressLabel(value)}</strong>
     </span>
   );
 }
@@ -129,7 +131,7 @@ export function Dashboard({
   state: State;
   href: (v: string) => string;
 }) {
-  const [range, setRange] = useState('30 Days');
+  const [range, setRange] = useState('7 Days');
   if (state.user.role === 'FOREMAN')
     return (
       <>
@@ -274,7 +276,7 @@ function AdminDashboard({
       <div className="kpi-grid dashboard-kpi-grid">
         <Kpi
           title="Overall Project Progress"
-          value={`${calculated.overall.toFixed(2)}%`}
+          value={progressLabel(calculated.overall)}
           footer="Actual physical completion"
           featured
           href={href('kpi-progress')}
@@ -282,7 +284,7 @@ function AdminDashboard({
         />
         <Kpi
           title="Remaining Progress"
-          value={`${calculated.remaining.toFixed(2)}%`}
+          value={progressLabel(calculated.remaining)}
           footer="Until physical completion"
           href={href('kpi-progress')}
           arrowLabel="Open Approved KPI Progress"
@@ -309,7 +311,7 @@ function AdminDashboard({
               {calculated.groups.map((group) => (
                 <div className="mini-kpi" key={group.id}>
                   <span>{group.name}</span>
-                  <strong>{group.progress.toFixed(2)}%</strong>
+                  <strong>{progressLabel(group.progress)}</strong>
                   <div className="progress-track">
                     <span style={{ width: `${group.progress}%` }} />
                   </div>
@@ -483,12 +485,7 @@ function AdminDashboard({
                       <span style={{ width: `${p.progress}%` }} />
                     </div>
                     <small>
-                      {p.progress.toFixed(1)}% ·{' '}
-                      {p.progress === 0
-                        ? 'Not started'
-                        : p.progress >= 100
-                          ? 'Completed'
-                          : 'In progress'}
+                      {p.earned.toFixed(2)}% earned · {p.weight}% weight · ({p.name})
                     </small>
                   </div>
                   <PackageProgressGauge value={p.progress} />

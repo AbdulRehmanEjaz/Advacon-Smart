@@ -48,6 +48,9 @@ await test('dashboard compacts top KPIs and keeps the live approval indicator on
   assert.doesNotMatch(dashboard, /title="Pending Approval"/);
   assert.equal(dashboard.match(/Work Packages/g)?.length, 1);
   assert.match(dashboard, /<PackageProgressGauge value=\{p\.progress\} \/>/);
+  assert.match(dashboard, /useState\('7 Days'\)/);
+  assert.match(dashboard, /p\.earned\.toFixed\(2\).*earned.*p\.weight.*weight.*\(\{p\.name\}\)/);
+  assert.match(dashboard, /Math\.abs\(value - 100\).*\? '100' : value\.toFixed\(2\)/);
   assert.equal(workspace.match(/pending > 0 && <i className="dot"/g)?.length, 1);
 });
 
