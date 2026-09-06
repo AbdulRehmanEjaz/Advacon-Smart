@@ -18,6 +18,7 @@ const localBindingConfig = {
         {
           binding: d1,
           database_name: 'advacon_db',
+          database_id: '8722fd67-abd1-4b16-a6e1-d3624888b682',
           migrations_dir: 'd1/migrations',
         },
       ]
