@@ -8,10 +8,19 @@ await test('sidebar contract includes attendance and resource management modules
   assert.match(source, /\['cost-control', 'Cost Control'/);
   assert.match(source, /\['timesheet', 'Timesheet & Attendance'/);
   assert.match(source, /\['resources', 'Manpower & Equipment'/);
+  assert.match(source, /group: 'KPIs Management'/);
+  assert.match(source, /group: 'Deliverables'/);
+  assert.match(source, /group: 'Cost & Resources'/);
+  assert.match(source, /group: 'Dashboard Settings'/);
+  assert.match(source, /\['daily', 'Daily Submissions'/);
+  assert.doesNotMatch(source, /\['daily', 'Daily Progress'/);
+  assert.match(source, /aria-expanded=\{expanded\}/);
+  assert.match(source, /<ChevronDown className="nav-group-chevron"/);
   const dashboard = source.indexOf("['dashboard', 'Dashboard'");
   const progress = source.indexOf("['kpi-progress', 'Approved KPI Progress'");
+  const daily = source.indexOf("['daily', 'Daily Submissions'");
   const approvals = source.indexOf("['approvals', 'Waiting for Approval'");
-  assert.ok(dashboard >= 0 && dashboard < progress && progress < approvals);
+  assert.ok(dashboard >= 0 && dashboard < progress && progress < daily && daily < approvals);
 });
 
 await test('manpower and equipment editor uses explicit form button types', async () => {

@@ -29,23 +29,35 @@ import {
   ArrowDownToLine,
   X,
   ArrowUpRight,
+  ChevronDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { type State, initials, post } from '@/lib/types';
 import { Dashboard } from './dashboard';
 import { DataPages } from './data-pages';
 import { ProgressForm } from './progress-form';
-const navigation: {
+type NavigationItem = [string, string, typeof TreePine];
+const topNavigation: NavigationItem[] = [
+  ['dashboard', 'Dashboard', LayoutDashboard],
+];
+const groupedNavigation: {
   group: string;
-  items: [string, string, typeof TreePine][];
+  icon: typeof TreePine;
+  items: NavigationItem[];
 }[] = [
   {
-    group: 'PROJECT',
+    group: 'KPIs Management',
+    icon: ListChecks,
     items: [
-      ['dashboard', 'Dashboard', LayoutDashboard],
       ['kpi-progress', 'Approved KPI Progress', ListChecks],
+      ['daily', 'Daily Submissions', CalendarDays],
       ['approvals', 'Waiting for Approval', ClipboardCheck],
-      ['daily', 'Daily Progress', CalendarDays],
+    ],
+  },
+  {
+    group: 'Deliverables',
+    icon: Trees,
+    items: [
       ['blocks', 'Block Readiness', Grid2X2],
       ['irrigation', 'Irrigation', Droplets],
       ['support', 'Support System', Fence],
@@ -54,18 +66,32 @@ const navigation: {
     ],
   },
   {
-    group: 'MANAGEMENT',
+    group: 'Cost & Resources',
+    icon: WalletCards,
     items: [
-      ['schedule', 'Schedule', ChartNoAxesCombined],
-      ['reports', 'Reports', FileChartColumn],
       ['cost-control', 'Cost Control', WalletCards],
-      ['timesheet', 'Timesheet & Attendance', Clock3],
       ['resources', 'Manpower & Equipment', HardHat],
+      ['timesheet', 'Timesheet & Attendance', Clock3],
+    ],
+  },
+  {
+    group: 'Dashboard Settings',
+    icon: Settings2,
+    items: [
       ['supervisors', 'Supervisors', UsersRound],
       ['settings', 'Project Settings', Settings2],
       ['audit', 'Audit Log', History],
     ],
   },
+];
+const managementNavigation: NavigationItem[] = [
+  ['schedule', 'Schedule', ChartNoAxesCombined],
+  ['reports', 'Reports', FileChartColumn],
+];
+const allNavigation = [
+  ...topNavigation,
+  ...groupedNavigation.flatMap((group) => group.items),
+  ...managementNavigation,
 ];
 export function Workspace({
   view,
@@ -82,7 +108,16 @@ export function Workspace({
     [open, setOpen] = useState(false),
     [adding, setAdding] = useState(false),
     [query, setQuery] = useState(''),
-    [detailLoading, setDetailLoading] = useState(false);
+    [detailLoading, setDetailLoading] = useState(false),
+    [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
+      () =>
+        Object.fromEntries(
+          groupedNavigation.map((group) => [
+            group.group,
+            group.items.some(([id]) => id === view),
+          ]),
+        ),
+    );
   const detailViews = ['audit', 'timesheet', 'resources'];
   const loadedDetails = useRef(
     new Set(
@@ -266,9 +301,8 @@ export function Workspace({
   const title =
     !isAdmin && activeView === 'dashboard'
       ? 'Site Progress'
-      : navigation
-          .flatMap((g) => g.items)
-          .find((i) => i[0] === activeView)?.[1] || 'Page not found';
+      : allNavigation.find((item) => item[0] === activeView)?.[1] ||
+        'Page not found';
   const href = (v: string) =>
     preview ? `/design-preview?view=${v}` : `/workspace/${v}`;
   return (
@@ -278,27 +312,87 @@ export function Workspace({
           <TreePine size={28} />
           <span>TREE CONTROL</span>
         </a>
-        {navigation.map((g) => (
-          <nav key={g.group} aria-label={g.group}>
-            <p className="nav-label">{g.group}</p>
-            {g.items
-              .filter((i) => isAdmin || ['dashboard', 'daily'].includes(i[0]))
-              .map(([id, label, Icon]) => (
-                <a
-                  className={`nav-link ${activeView === id ? 'active' : ''}`}
-                  aria-current={activeView === id ? 'page' : undefined}
-                  key={id}
-                  href={href(id)}
+        <nav aria-label="Project navigation">
+          <p className="nav-label">PROJECT</p>
+          {topNavigation.map(([id, label, Icon]) => (
+            <a
+              className={`nav-link ${activeView === id ? 'active' : ''}`}
+              aria-current={activeView === id ? 'page' : undefined}
+              key={id}
+              href={href(id)}
+            >
+              <Icon />
+              <span>{label}</span>
+            </a>
+          ))}
+          {groupedNavigation.map((group) => {
+            const items = group.items.filter(
+              ([id]) => isAdmin || id === 'daily',
+            );
+            if (!items.length) return null;
+            const expanded =
+              (expandedGroups[group.group] ?? false) ||
+              group.items.some(([id]) => id === activeView);
+            const GroupIcon = group.icon;
+            const controlId = `nav-group-${group.group.toLowerCase().replace(/[^a-z]+/g, '-')}`;
+            return (
+              <div className="nav-group" key={group.group}>
+                <button
+                  type="button"
+                  className={`nav-group-trigger ${expanded ? 'expanded' : ''}`}
+                  aria-expanded={expanded}
+                  aria-controls={controlId}
+                  onClick={() =>
+                    setExpandedGroups((current) => ({
+                      ...current,
+                      [group.group]: !expanded,
+                    }))
+                  }
                 >
-                  <Icon />
-                  <span>{label}</span>
-                  {id === 'approvals' && pending > 0 && (
-                    <span className="nav-count">{pending}</span>
-                  )}
-                </a>
-              ))}
+                  <GroupIcon />
+                  <span>{group.group}</span>
+                  <ChevronDown className="nav-group-chevron" />
+                </button>
+                <div
+                  className="nav-group-items"
+                  id={controlId}
+                  hidden={!expanded}
+                >
+                  {items.map(([id, label, Icon]) => (
+                    <a
+                      className={`nav-link ${activeView === id ? 'active' : ''}`}
+                      aria-current={activeView === id ? 'page' : undefined}
+                      key={id}
+                      href={href(id)}
+                    >
+                      <Icon />
+                      <span>{label}</span>
+                      {id === 'approvals' && pending > 0 && (
+                        <span className="nav-count">{pending}</span>
+                      )}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </nav>
+        {isAdmin && (
+          <nav aria-label="Management navigation">
+            <p className="nav-label">MANAGEMENT</p>
+            {managementNavigation.map(([id, label, Icon]) => (
+              <a
+                className={`nav-link ${activeView === id ? 'active' : ''}`}
+                aria-current={activeView === id ? 'page' : undefined}
+                key={id}
+                href={href(id)}
+              >
+                <Icon />
+                <span>{label}</span>
+              </a>
+            ))}
           </nav>
-        ))}
+        )}
         <p className="nav-label">GENERAL</p>
         <button
           className="nav-link"
