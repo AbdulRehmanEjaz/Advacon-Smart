@@ -2,11 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-await test('sidebar contract removes Quality and adds instant placeholder modules', async () => {
+await test('sidebar contract includes attendance and resource management modules', async () => {
   const source = await readFile(new URL('../components/workspace.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /\['quality',\s*'Quality'/);
   assert.match(source, /\['cost-control', 'Cost Control'/);
-  assert.match(source, /\['timesheet', 'Timesheet'/);
+  assert.match(source, /\['timesheet', 'Timesheet & Attendance'/);
+  assert.match(source, /\['resources', 'Manpower & Equipment'/);
   const dashboard = source.indexOf("['dashboard', 'Dashboard'");
   const progress = source.indexOf("['kpi-progress', 'Approved KPI Progress'");
   const approvals = source.indexOf("['approvals', 'Waiting for Approval'");

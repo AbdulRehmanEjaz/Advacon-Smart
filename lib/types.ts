@@ -1,5 +1,6 @@
 import type { PackageDefinition, Settings } from './domain/baseline';
 import type { Block, OpeningBalance, Submission } from './domain/calculations';
+import type { AttendanceRecord, Resource } from './domain/attendance';
 export type User = {
   id: string;
   name: string;
@@ -50,6 +51,10 @@ export type State = {
     before: unknown;
     after: unknown;
   }[];
+  manpower?: Resource[];
+  equipment?: Resource[];
+  manpowerAttendance?: AttendanceRecord[];
+  equipmentAttendance?: AttendanceRecord[];
 };
 export async function post(path: string, body: unknown) {
   const r = await fetch(`/api/${path}`, {

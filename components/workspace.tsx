@@ -20,6 +20,7 @@ import {
   History,
   WalletCards,
   Clock3,
+  HardHat,
   LogOut,
   Search,
   Bell,
@@ -58,7 +59,8 @@ const navigation: {
       ['schedule', 'Schedule', ChartNoAxesCombined],
       ['reports', 'Reports', FileChartColumn],
       ['cost-control', 'Cost Control', WalletCards],
-      ['timesheet', 'Timesheet', Clock3],
+      ['timesheet', 'Timesheet & Attendance', Clock3],
+      ['resources', 'Manpower & Equipment', HardHat],
       ['supervisors', 'Supervisors', UsersRound],
       ['settings', 'Project Settings', Settings2],
       ['audit', 'Audit Log', History],
@@ -81,15 +83,18 @@ export function Workspace({
     [adding, setAdding] = useState(false),
     [query, setQuery] = useState(''),
     [detailLoading, setDetailLoading] = useState(false);
-  const loadedDetails = useRef(
-    new Set(initialState?.audit ? ['audit'] : []),
-  );
+  const detailViews = ['audit', 'timesheet', 'resources'];
+  const loadedDetails = useRef(new Set(
+    detailViews.filter((item) =>
+      item === 'audit' ? Boolean(initialState?.audit) : Boolean(initialState?.manpower),
+    ),
+  ));
   const loadingDetails = useRef(new Set<string>());
   const detailSequence = useRef(0);
   async function refresh() {
     try {
       const r = await fetch(
-        '/api/state?view=dashboard',
+        `/api/state?view=${encodeURIComponent(activeView)}`,
         {
           cache: 'no-store',
         },
@@ -101,20 +106,20 @@ export function Workspace({
       const d = (await r.json()) as State & { error?: string };
       if (!r.ok) throw Error(d.error);
       setState(d);
-      loadedDetails.current.delete('audit');
+      if (detailViews.includes(activeView)) loadedDetails.current.add(activeView);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to load project.');
     }
   }
   async function loadDetail(nextView: string) {
     if (
-      nextView !== 'audit' ||
-      loadedDetails.current.has('audit') ||
-      loadingDetails.current.has('audit')
+      !detailViews.includes(nextView) ||
+      loadedDetails.current.has(nextView) ||
+      loadingDetails.current.has(nextView)
     )
       return;
     const sequence = ++detailSequence.current;
-    loadingDetails.current.add('audit');
+    loadingDetails.current.add(nextView);
     setDetailLoading(true);
     try {
       const r = await fetch(
@@ -128,11 +133,11 @@ export function Workspace({
       const detail = (await r.json()) as Partial<State> & { error?: string };
       if (!r.ok) throw Error(detail.error);
       setState((current) => (current ? { ...current, ...detail } : current));
-      loadedDetails.current.add('audit');
+      loadedDetails.current.add(nextView);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to load this page.');
     } finally {
-      loadingDetails.current.delete('audit');
+      loadingDetails.current.delete(nextView);
       if (sequence === detailSequence.current) setDetailLoading(false);
     }
   }

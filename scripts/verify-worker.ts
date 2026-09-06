@@ -144,6 +144,14 @@ try {
       )
     ).replace(/\s*\r?\n\s*/g, ' '),
   );
+  await d1.exec(
+    (
+      await readFile(
+        new URL('../d1/migrations/0004_timesheet_attendance.sql', import.meta.url),
+        'utf8',
+      )
+    ).replace(/\s*\r?\n\s*/g, ' '),
+  );
   assert.equal(
     (await d1.prepare("SELECT COUNT(*) AS count FROM daily_submissions WHERE id='migration-preservation'").first<{ count: number }>())?.count,
     1,
@@ -180,6 +188,55 @@ try {
     false,
   );
   assert.equal((await state(fetcher, supervisor.cookie)).user.role, 'FOREMAN');
+
+  assert.equal((await fetcher(origin + '/api/state?view=timesheet', { headers: { Cookie: supervisor.cookie } })).status, 403);
+  assert.equal((await fetcher(origin + '/api/state?view=timesheet&detail=1', { headers: { Cookie: supervisor.cookie } })).status, 403);
+  const labourResponse = await post(fetcher, 'manpower', {
+    action: 'save', code: 'LAB-001', name: 'Worker One', company: 'Site Services',
+  }, admin.cookie);
+  assert.equal(labourResponse.status, 200, await labourResponse.clone().text());
+  const labourId = ((await labourResponse.json()) as { id: string }).id;
+  assert.equal((await post(fetcher, 'manpower', {
+    action: 'save', code: 'LAB-001', name: 'Duplicate Worker', company: 'Site Services',
+  }, admin.cookie)).status, 409);
+  const equipmentResponse = await post(fetcher, 'equipment', {
+    action: 'save', code: 'EX-01', name: 'Excavator', company: 'Plant Rental', dailyRateHalalas: 85000,
+  }, admin.cookie);
+  assert.equal(equipmentResponse.status, 200, await equipmentResponse.clone().text());
+  const equipmentId = ((await equipmentResponse.json()) as { id: string }).id;
+  assert.equal((await post(fetcher, 'equipment', {
+    action: 'save', id: equipmentId, code: 'EX-01', name: 'Excavator', company: 'Plant Rental', dailyRateHalalas: 90000,
+  }, admin.cookie)).status, 200);
+  assert.equal((await post(fetcher, 'attendance', {
+    kind: 'manpower', date: riyadhDate(), entries: [{ resourceId: labourId, status: 'P' }],
+  }, supervisor.cookie)).status, 403);
+  assert.equal((await post(fetcher, 'attendance', {
+    kind: 'manpower', date: offsetRiyadhDate(1), entries: [{ resourceId: labourId, status: 'P' }],
+  }, admin.cookie)).status, 400);
+  assert.equal((await post(fetcher, 'attendance', {
+    kind: 'manpower', date: riyadhDate(), entries: [{ resourceId: labourId, status: 'INVALID' }],
+  }, admin.cookie)).status, 400);
+  for (const attendanceDate of [offsetRiyadhDate(-1), riyadhDate()]) {
+    assert.equal((await post(fetcher, 'attendance', {
+      kind: 'manpower', date: attendanceDate, entries: [{ resourceId: labourId, status: 'P' }],
+    }, admin.cookie)).status, 200);
+  }
+  assert.equal((await post(fetcher, 'attendance', {
+    kind: 'manpower', date: riyadhDate(), entries: [{ resourceId: labourId, status: 'A' }],
+  }, admin.cookie)).status, 200);
+  assert.equal((await post(fetcher, 'attendance', {
+    kind: 'equipment', date: riyadhDate(), entries: [{ resourceId: equipmentId, status: 'P' }],
+  }, admin.cookie)).status, 200);
+  const attendanceDetail = await state(fetcher, admin.cookie, '?view=timesheet');
+  const attendanceData = attendanceDetail as State & {
+    manpower: { id: string; dailyRateHalalas: number }[];
+    equipment: { id: string; dailyRateHalalas: number }[];
+    manpowerAttendance: { resourceId: string; date: string; status: string }[];
+  };
+  assert.equal(attendanceData.manpower.find((item) => item.id === labourId)?.dailyRateHalalas, 13000);
+  assert.equal(attendanceData.equipment.find((item) => item.id === equipmentId)?.dailyRateHalalas, 90000);
+  assert.equal(attendanceData.manpowerAttendance.filter((item) => item.resourceId === labourId && item.date === riyadhDate()).length, 1);
+  assert.equal(attendanceData.manpowerAttendance.find((item) => item.resourceId === labourId && item.date === riyadhDate())?.status, 'A');
 
   const createdResponse = await post(fetcher, 'supervisor', {
     action: 'create', name: 'Second Site Supervisor', pin: '678', confirmPin: '678',

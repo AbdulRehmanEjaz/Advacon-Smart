@@ -16,6 +16,7 @@ import { Badge, Kpi } from './dashboard';
 import { Editor, type Field, Modal, ProgressForm } from './progress-form';
 import { Supervisors } from './supervisors';
 import { ApprovedKpiProgress } from './approved-kpi-progress';
+import { ResourcesPage, TimesheetPage } from './attendance';
 import {
   approvedTotals,
   calculateKpiProgress,
@@ -61,11 +62,19 @@ export function DataPages(props: Props) {
     content = <ApprovedKpiProgress state={state} />;
   else if (view === 'reports')
     content = <OfficialReport state={state} />;
-  else if (view === 'cost-control' || view === 'timesheet')
+  else if (view === 'timesheet')
+    content = props.detailLoading && !state.manpower
+      ? <section className="card shell-loading">Loading attendance…</section>
+      : <TimesheetPage state={state} refresh={refresh} preview={preview} />;
+  else if (view === 'resources')
+    content = props.detailLoading && !state.manpower
+      ? <section className="card shell-loading">Loading resources…</section>
+      : <ResourcesPage state={state} refresh={refresh} preview={preview} />;
+  else if (view === 'cost-control')
     content = (
       <section className="card empty-note">
         <h2 className="card-title">
-          {view === 'cost-control' ? 'Cost Control' : 'Timesheet'}
+          Cost Control
         </h2>
         <p>Module configuration will be added in the next phase.</p>
       </section>

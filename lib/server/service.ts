@@ -17,6 +17,12 @@ import { assertReviewable } from '../domain/workflow';
 import { supervisorAction } from './supervisors';
 import { createCredential } from './credentials';
 import { riyadhDate } from '../domain/date';
+import {
+  ATTENDANCE_STATUSES,
+  MANPOWER_DAILY_RATE_HALALAS,
+  type AttendanceRecord,
+  type Resource,
+} from '../domain/attendance';
 
 type Row = Record<string, string | number | boolean | null>;
 type Core = {
@@ -274,7 +280,41 @@ function inspectionsFromRows(inspectionRows: Row[], observationRows: Row[]) {
   }));
 }
 
-async function details(view: string | undefined, _user: Actor) {
+async function attendanceDetails() {
+  const db = database();
+  const results = await db.batch([
+    db.prepare(`SELECT id,labour_id AS code,name,company,active,archived_at AS archivedAt,
+      created_at AS createdAt,updated_at AS updatedAt FROM manpower ORDER BY active DESC,name`),
+    db.prepare(`SELECT id,equipment_id AS code,name,company,daily_rate_halalas AS dailyRateHalalas,
+      active,archived_at AS archivedAt,created_at AS createdAt,updated_at AS updatedAt
+      FROM equipment ORDER BY active DESC,name`),
+    db.prepare(`SELECT id,manpower_id AS resourceId,attendance_date AS date,status,
+      created_at AS createdAt,updated_at AS updatedAt FROM manpower_attendance ORDER BY attendance_date DESC`),
+    db.prepare(`SELECT id,equipment_id AS resourceId,attendance_date AS date,status,
+      created_at AS createdAt,updated_at AS updatedAt FROM equipment_attendance ORDER BY attendance_date DESC`),
+  ]);
+  const rows = results.map((result) => result.results as Row[]);
+  const resource = (row: Row, rate: number): Resource => ({
+    id: String(row.id), code: String(row.code), name: String(row.name), company: String(row.company),
+    dailyRateHalalas: rate, active: bool(row.active),
+    archivedAt: row.archivedAt == null ? null : String(row.archivedAt),
+    createdAt: String(row.createdAt), updatedAt: String(row.updatedAt),
+  });
+  const attendance = (row: Row): AttendanceRecord => ({
+    id: String(row.id), resourceId: String(row.resourceId), date: String(row.date),
+    status: row.status as AttendanceRecord['status'], createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+  });
+  return {
+    manpower: rows[0].map((row) => resource(row, MANPOWER_DAILY_RATE_HALALAS)),
+    equipment: rows[1].map((row) => resource(row, Number(row.dailyRateHalalas))),
+    manpowerAttendance: rows[2].map(attendance),
+    equipmentAttendance: rows[3].map(attendance),
+  };
+}
+
+async function details(view: string | undefined, user: Actor) {
+  if (view && ['audit', 'timesheet', 'resources'].includes(view)) admin(user);
   if (view === 'audit') {
     const audit = await database()
       .prepare(`SELECT id,user_id AS userId,role,action,entity_type AS entityType,
@@ -289,6 +329,9 @@ async function details(view: string | undefined, _user: Actor) {
       })),
     };
   }
+  if (view === 'timesheet' || view === 'resources') {
+    return attendanceDetails();
+  }
   return {};
 }
 
@@ -298,7 +341,7 @@ export async function getState(user: Actor, view?: string) {
 }
 
 export async function getStateDetail(user: Actor, view: string) {
-  if (user.role !== 'ADMIN' || view !== 'audit') return {};
+  if (!['audit', 'timesheet', 'resources'].includes(view)) return {};
   return details(view, user);
 }
 
@@ -616,6 +659,94 @@ export async function mutate(path: string, req: Request, user: Actor) {
     );
 
   admin(user);
+  if (path === 'manpower' || path === 'equipment') {
+    const isManpower = path === 'manpower';
+    const data = z.discriminatedUnion('action', [
+      z.object({
+        action: z.literal('save'), id: z.string().optional(),
+        code: z.string().trim().min(1).max(80), name: z.string().trim().min(2).max(120),
+        company: z.string().trim().min(1).max(120),
+        dailyRateHalalas: z.number().int().nonnegative().max(100_000_000).optional(),
+      }),
+      z.object({ action: z.literal('status'), id: z.string(), active: z.boolean() }),
+    ]).parse(body);
+    const table = isManpower ? 'manpower' : 'equipment';
+    const codeColumn = isManpower ? 'labour_id' : 'equipment_id';
+    const timestamp = now();
+    const before = data.id
+      ? await first<Row>(`SELECT id,${codeColumn} AS code,name,company,active,archived_at AS archivedAt${isManpower ? '' : ',daily_rate_halalas AS dailyRateHalalas'} FROM ${table} WHERE id=?`, data.id)
+      : null;
+    if (data.id && !before) throw new HttpError(404, `${isManpower ? 'Labour' : 'Equipment'} record not found.`);
+    if (data.action === 'save') {
+      const code = data.code.toUpperCase();
+      if (!isManpower) requireThat(data.dailyRateHalalas != null, 'Enter a valid daily rate.');
+      const savedId = data.id || id();
+      const sql = data.id
+        ? isManpower
+          ? 'UPDATE manpower SET labour_id=?,name=?,company=?,updated_at=? WHERE id=?'
+          : 'UPDATE equipment SET equipment_id=?,name=?,company=?,daily_rate_halalas=?,updated_at=? WHERE id=?'
+        : isManpower
+          ? 'INSERT INTO manpower (id,labour_id,name,company,active,created_at,updated_at) VALUES (?,?,?,?,1,?,?)'
+          : 'INSERT INTO equipment (id,equipment_id,name,company,daily_rate_halalas,active,created_at,updated_at) VALUES (?,?,?,?,?,1,?,?)';
+      const values = data.id
+        ? isManpower
+          ? [code, data.name, data.company, timestamp, savedId]
+          : [code, data.name, data.company, data.dailyRateHalalas!, timestamp, savedId]
+        : isManpower
+          ? [savedId, code, data.name, data.company, timestamp, timestamp]
+          : [savedId, code, data.name, data.company, data.dailyRateHalalas!, timestamp, timestamp];
+      await database().batch([
+        statement(sql, ...values),
+        auditStatement(user, data.id ? `${isManpower ? 'LABOUR' : 'EQUIPMENT'}_UPDATED` : `${isManpower ? 'LABOUR' : 'EQUIPMENT'}_CREATED`, isManpower ? 'Manpower' : 'Equipment', savedId, before, {
+          code, name: data.name, company: data.company,
+          ...(isManpower ? { dailyRateHalalas: MANPOWER_DAILY_RATE_HALALAS } : { dailyRateHalalas: data.dailyRateHalalas }),
+        }),
+      ]);
+      return { id: savedId };
+    }
+    await database().batch([
+      statement(`UPDATE ${table} SET active=?,archived_at=?,updated_at=? WHERE id=?`, Number(data.active), data.active ? null : timestamp, timestamp, data.id),
+      auditStatement(user, `${isManpower ? 'LABOUR' : 'EQUIPMENT'}_${data.active ? 'ACTIVATED' : 'DEACTIVATED'}`, isManpower ? 'Manpower' : 'Equipment', data.id, before, { active: data.active }),
+    ]);
+    return { id: data.id };
+  }
+
+  if (path === 'attendance') {
+    const data = z.object({
+      kind: z.enum(['manpower', 'equipment']),
+      date,
+      entries: z.array(z.object({
+        resourceId: z.string(),
+        status: z.enum(ATTENDANCE_STATUSES).nullable(),
+      })).max(2000),
+    }).parse(body);
+    requireThat(data.date <= riyadhDate(), `Attendance cannot be recorded after ${riyadhDate()} (Asia/Riyadh).`);
+    requireThat(new Set(data.entries.map((entry) => entry.resourceId)).size === data.entries.length, 'Duplicate attendance entry.');
+    const isManpower = data.kind === 'manpower';
+    const resourceTable = isManpower ? 'manpower' : 'equipment';
+    const attendanceTable = isManpower ? 'manpower_attendance' : 'equipment_attendance';
+    const foreignKey = isManpower ? 'manpower_id' : 'equipment_id';
+    if (data.entries.length) {
+      const placeholders = data.entries.map(() => '?').join(',');
+      const rows = await database().prepare(`SELECT id FROM ${resourceTable} WHERE id IN (${placeholders})`).bind(...data.entries.map((entry) => entry.resourceId)).all<Row>();
+      requireThat(rows.results.length === data.entries.length, 'One or more attendance records no longer exist.');
+    }
+    const timestamp = now();
+    const writes = data.entries.map((entry) => entry.status
+      ? statement(`INSERT INTO ${attendanceTable} (id,${foreignKey},attendance_date,status,created_by,created_at,updated_at)
+          VALUES (?,?,?,?,?,?,?) ON CONFLICT(${foreignKey},attendance_date) DO UPDATE SET
+          status=excluded.status,created_by=excluded.created_by,updated_at=excluded.updated_at`,
+          id(), entry.resourceId, data.date, entry.status, user.id, timestamp, timestamp)
+      : statement(`DELETE FROM ${attendanceTable} WHERE ${foreignKey}=? AND attendance_date=?`, entry.resourceId, data.date));
+    writes.push(auditStatement(user, 'ATTENDANCE_BATCH_SAVED', isManpower ? 'ManpowerAttendance' : 'EquipmentAttendance', data.date, undefined, {
+      date: data.date, kind: data.kind, changedRecords: data.entries.length,
+      statusCounts: Object.fromEntries(ATTENDANCE_STATUSES.map((status) => [status, data.entries.filter((entry) => entry.status === status).length])),
+      unmarked: data.entries.filter((entry) => entry.status == null).length,
+    }));
+    await database().batch(writes);
+    return { ok: true };
+  }
+
   if (path === 'review') {
     const data = z
       .object({
