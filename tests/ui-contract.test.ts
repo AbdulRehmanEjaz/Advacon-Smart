@@ -14,6 +14,17 @@ await test('sidebar contract includes attendance and resource management modules
   assert.ok(dashboard >= 0 && dashboard < progress && progress < approvals);
 });
 
+await test('manpower and equipment editor uses explicit form button types', async () => {
+  const source = await readFile(
+    new URL('../components/attendance.tsx', import.meta.url),
+    'utf8',
+  );
+  const editorForm = source.match(/<form onSubmit=\{save\}>[\s\S]*?<\/form>/)?.[0] || '';
+  assert.match(editorForm, /<Button type="submit" className="primary"/);
+  assert.match(editorForm, /<button className="secondary" type="button"/);
+  assert.match(editorForm, /Save record/);
+});
+
 await test('detailed KPI register lives only on its dedicated fast workspace view', async () => {
   const [dashboard, page, dataPages] = await Promise.all([
     readFile(new URL('../components/dashboard.tsx', import.meta.url), 'utf8'),

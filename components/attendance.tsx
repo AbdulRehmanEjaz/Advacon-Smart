@@ -55,7 +55,7 @@ function MasterEditor({ kind, item, onClose, onSaved }: { kind: AttendanceKind; 
         <label className="field">Daily rate (SAR)<input required={!manpower} readOnly={manpower} inputMode="decimal" value={manpower ? '130.00' : rate} onChange={(e) => setRate(e.target.value)} /></label>
       </div>
       {error && <p className="error" role="alert">{error}</p>}
-      <div className="form-actions"><button className="secondary" type="button" onClick={onClose}>Cancel</button><Button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save record'}</Button></div>
+      <div className="form-actions"><button className="secondary" type="button" onClick={onClose}>Cancel</button><Button type="submit" className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save record'}</Button></div>
     </form>
   </Modal>;
 }
