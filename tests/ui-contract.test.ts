@@ -44,6 +44,19 @@ await test('detailed KPI register lives only on its dedicated fast workspace vie
   assert.match(dataPages, /view === 'kpi-progress'/);
 });
 
+await test('task pages show official cumulative KPI totals instead of submission-only totals', async () => {
+  const source = await readFile(
+    new URL('../components/data-pages.tsx', import.meta.url),
+    'utf8',
+  );
+  assert.match(source, /<h2 className="card-title">Task Progress<\/h2>/);
+  assert.match(source, /<th>Total Progress<\/th>/);
+  assert.match(source, /<th>Target<\/th>[\s\S]*?<th>Completion<\/th>[\s\S]*?<th>Package Weight<\/th>/);
+  assert.match(source, /\{p\.activities\.map/);
+  assert.match(source, /value = a\.quantity/);
+  assert.doesNotMatch(source, /Approved Stage Quantities|<th>Approved<\/th>|data-label="Approved"/);
+});
+
 await test('dashboard uses a balanced package and activity grid without artificial sizing', async () => {
   const styles = await readFile(new URL('../app/globals.css', import.meta.url), 'utf8');
   assert.match(styles, /\.main-activity-dashboard\s*\{[^}]*height:\s*auto;[^}]*min-height:\s*0;/);

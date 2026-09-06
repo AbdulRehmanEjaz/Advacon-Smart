@@ -13,7 +13,9 @@ await test('professional report is a valid worker-safe PDF using official calcul
   const content = new TextDecoder().decode(bytes);
   assert.match(content, /^%PDF-1\.7/);
   assert.match(content, /Overall Project Progress/);
-  assert.match(content, /15\.67%/);
+  assert.match(content, /14\.45%/);
+  assert.match(content, /Trenching & Excavation/);
+  assert.doesNotMatch(content, /Ø160 & Ø110/);
   assert.match(content, /Transportation & Delivery/);
   assert.doesNotMatch(content, /Pre-Delivery Inspection/);
   assert.match(content, /Final Testing, Documentation & Handover/);

@@ -64,19 +64,31 @@ await test('final completion contributes its five percent only after approval', 
 
 await test('opening balances produce the approved exact overall result', () => {
   const result = official();
-  close(result.overall, 15.66652278138432);
-  close(result.remaining, Number('84.33347721861568'));
-  assert.equal(Number(result.overall.toFixed(2)), 15.67);
+  close(result.overall, 14.445539965586914);
+  close(result.remaining, 85.55446003441308);
+  assert.equal(Number(result.overall.toFixed(2)), 14.45);
 });
 
 await test('opening irrigation and support group results match the approved model', () => {
   const result = official();
   const irrigation = result.groups.find((item) => item.id === 'irrigation')!;
   const support = result.groups.find((item) => item.id === 'support')!;
-  close(irrigation.earned, Number('3.9229330377945765'));
-  close(irrigation.progress, 15.69173215117831);
+  close(irrigation.earned, 2.701950221997169);
+  close(irrigation.progress, 10.807800887988677);
   close(support.earned, 1.743589743589744);
   close(support.progress, 6.974358974358977);
+});
+
+await test('trenching target update preserves opening progress and project weight', () => {
+  const activity = official().groups
+    .find((item) => item.id === 'irrigation')!
+    .activities.find((item) => item.id === 'kpi-irrigation-trenching')!;
+  assert.equal(activity.name, 'Trenching & Excavation');
+  assert.equal(activity.target, 1070);
+  assert.equal(activity.quantity, 450);
+  assert.equal(activity.remaining, 620);
+  assert.equal(activity.weight, 4);
+  close(activity.completion, 42.05607476635514);
 });
 
 await test('waiting, returned and rejected work contributes zero', () => {

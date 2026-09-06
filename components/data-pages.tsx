@@ -18,11 +18,9 @@ import { Supervisors } from './supervisors';
 import { ApprovedKpiProgress } from './approved-kpi-progress';
 import { ResourcesPage, TimesheetPage } from './attendance';
 import {
-  approvedTotals,
   calculateKpiProgress,
   productivity,
   readiness,
-  targetFor,
   type Submission,
 } from '@/lib/domain/calculations';
 import { type State, number, today, post } from '@/lib/types';
@@ -52,7 +50,6 @@ const commentField: Field = {
 export function DataPages(props: Props) {
   const { state, view, preview, refresh } = props;
   const [edit, setEdit] = useState<Edit | null>(null);
-  const totals = approvedTotals(state.submissions);
   const admin = state.user.role === 'ADMIN';
   const pkg = state.packages.find((p) => p.id === view);
   let content;
@@ -265,9 +262,9 @@ export function DataPages(props: Props) {
         <section className="card">
           <div className="card-heading">
             <div>
-              <h2 className="card-title">Approved Stage Quantities</h2>
+              <h2 className="card-title">Task Progress</h2>
               <p className="card-subtitle">
-                Quantity-based completion · unapproved submissions are excluded
+                Official cumulative progress · waiting, returned and rejected submissions are excluded
               </p>
             </div>
             <Leaf color="#087443" size={20} />
@@ -276,32 +273,30 @@ export function DataPages(props: Props) {
             <thead>
               <tr>
                 <th>Stage</th>
-                <th>Approved</th>
+                <th>Total Progress</th>
                 <th>Target</th>
-                <th>Package weight</th>
                 <th>Completion</th>
+                <th>Package Weight</th>
               </tr>
             </thead>
             <tbody>
-              {pkg.activities.map((a) => {
-                const target = targetFor(a, settings),
-                  value = totals[a.id] || 0;
+              {p.activities.map((a) => {
+                const target = a.target,
+                  value = a.quantity;
                 return (
                   <tr key={a.id}>
                     <td data-label="Stage">{a.name}</td>
-                    <td data-label="Approved">
+                    <td data-label="Total Progress">
                       {number(value)} {a.unit}
                     </td>
                     <td data-label="Target">
                       {target ? number(target) : 'Tracking only'}
                     </td>
-                    <td data-label="Weight">{number(a.weight)}%</td>
                     <td data-label="Completion">
-                      {target
-                        ? `${Math.min(100, (value / target) * 100).toFixed(1)}%`
-                        : '—'}
+                      {target ? `${a.completion.toFixed(1)}%` : '—'}
                       {target > 0 && value > target && <Badge status="HOLD" />}
                     </td>
+                    <td data-label="Package Weight">{number(a.weight)}%</td>
                   </tr>
                 );
               })}

@@ -152,6 +152,14 @@ try {
       )
     ).replace(/\s*\r?\n\s*/g, ' '),
   );
+  await d1.exec(
+    (
+      await readFile(
+        new URL('../d1/migrations/0005_update_irrigation_trenching_kpi.sql', import.meta.url),
+        'utf8',
+      )
+    ).replace(/\s*\r?\n\s*/g, ' '),
+  );
   assert.equal(
     (await d1.prepare("SELECT COUNT(*) AS count FROM daily_submissions WHERE id='migration-preservation'").first<{ count: number }>())?.count,
     1,
@@ -177,6 +185,12 @@ try {
   assert.equal(adminState.blocks.length, 19);
   assert.equal(adminState.packages.length, 7);
   assert.equal(adminState.packages.flatMap((item) => item.activities).length, 23);
+  const trenching = adminState.packages
+    .flatMap((item) => item.activities)
+    .find((item) => item.id === 'kpi-irrigation-trenching');
+  assert.equal(trenching?.name, 'Trenching & Excavation');
+  assert.equal(trenching?.target, 1070);
+  assert.equal(trenching?.weight, 4);
   assert.equal(adminState.openingBalances.filter((item) =>
     adminState.packages.flatMap((group) => group.activities).some((activity) => activity.id === item.activityId),
   ).length, 23);

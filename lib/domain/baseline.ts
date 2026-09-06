@@ -73,7 +73,7 @@ export const packages: PackageDefinition[] = [
   ]),
   pkg('irrigation', '01. Site Preparation & Irrigation', 3, [
     ['kpi-irrigation-survey', 'Survey & Setting-Out', 'Survey Points', 328, 1],
-    ['kpi-irrigation-trenching', 'Trenching & Excavation – Ø160 & Ø110 mm', 'm', 620, 4],
+    ['kpi-irrigation-trenching', 'Trenching & Excavation', 'm', 1070, 4],
     ['kpi-irrigation-hdpe', 'HDPE Pipe Installation', 'm', 17070, 12],
     ['kpi-irrigation-valves', 'Valves, Decoders & Cabling', 'No.', 19, 3],
     ['kpi-irrigation-backfill', 'Backfilling & Compaction', 'm', 620, 2],
