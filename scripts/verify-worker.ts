@@ -160,6 +160,14 @@ try {
       )
     ).replace(/\s*\r?\n\s*/g, ' '),
   );
+  await d1.exec(
+    (
+      await readFile(
+        new URL('../d1/migrations/0006_cost_control.sql', import.meta.url),
+        'utf8',
+      )
+    ).replace(/\s*\r?\n\s*/g, ' '),
+  );
   assert.equal(
     (await d1.prepare("SELECT COUNT(*) AS count FROM daily_submissions WHERE id='migration-preservation'").first<{ count: number }>())?.count,
     1,
@@ -251,6 +259,40 @@ try {
   assert.equal(attendanceData.equipment.find((item) => item.id === equipmentId)?.dailyRateHalalas, 90000);
   assert.equal(attendanceData.manpowerAttendance.filter((item) => item.resourceId === labourId && item.date === riyadhDate()).length, 1);
   assert.equal(attendanceData.manpowerAttendance.find((item) => item.resourceId === labourId && item.date === riyadhDate())?.status, 'A');
+
+  assert.equal((await fetcher(origin + '/api/state?view=cost-control', {
+    headers: { Cookie: supervisor.cookie },
+  })).status, 403);
+  assert.equal((await post(fetcher, 'fuel', {
+    action: 'save', date: riyadhDate(), fuelType: 'DIESEL', quantityMillilitres: 10_000,
+    vatStatus: 'NON_VAT', enteredAmountHalalas: 10_000, description: '',
+  }, supervisor.cookie)).status, 403);
+  assert.equal((await post(fetcher, 'fuel', {
+    action: 'save', date: offsetRiyadhDate(1), fuelType: 'DIESEL', quantityMillilitres: 10_000,
+    vatStatus: 'NON_VAT', enteredAmountHalalas: 10_000, description: '',
+  }, admin.cookie)).status, 400);
+  assert.equal((await post(fetcher, 'fuel', {
+    action: 'save', date: riyadhDate(), fuelType: 'DIESEL', quantityMillilitres: 10_000,
+    vatStatus: 'VAT_INCLUDED', enteredAmountHalalas: 115_000, description: 'Generator fuel',
+  }, admin.cookie)).status, 200);
+  assert.equal((await post(fetcher, 'invoice-po', {
+    action: 'save', date: riyadhDate(), vatStatus: 'NON_VAT', invoiceNo: 'INV-001', poNo: '',
+    enteredAmountHalalas: 1_000_000, description: 'Site services',
+  }, admin.cookie)).status, 200);
+  const costResponse = await fetcher(origin + '/api/state?view=cost-control', {
+    headers: { Cookie: admin.cookie },
+  });
+  assert.equal(costResponse.status, 200);
+  const costData = await costResponse.json() as {
+    fuelRecords: { enteredAmountHalalas: number; netAmountHalalas: number; vatRemovedHalalas: number }[];
+    invoicePoRecords: { enteredAmountHalalas: number; netAmountHalalas: number; vatRemovedHalalas: number }[];
+  };
+  assert.deepEqual(costData.fuelRecords[0], {
+    ...costData.fuelRecords[0], enteredAmountHalalas: 115_000,
+    netAmountHalalas: 100_000, vatRemovedHalalas: 15_000,
+  });
+  assert.equal(costData.invoicePoRecords[0].netAmountHalalas, 1_000_000);
+  assert.equal(costData.invoicePoRecords[0].vatRemovedHalalas, 0);
 
   const timesheetExport = await fetcher(
     `${origin}/api/timesheet.xlsx?month=${riyadhDate().slice(0, 7)}`,

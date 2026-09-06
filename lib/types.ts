@@ -1,6 +1,7 @@
 import type { PackageDefinition, Settings } from './domain/baseline';
 import type { Block, OpeningBalance, Submission } from './domain/calculations';
 import type { AttendanceRecord, Resource } from './domain/attendance';
+import type { FuelRecord, InvoicePoRecord } from './domain/costs';
 export type User = {
   id: string;
   name: string;
@@ -55,6 +56,8 @@ export type State = {
   equipment?: Resource[];
   manpowerAttendance?: AttendanceRecord[];
   equipmentAttendance?: AttendanceRecord[];
+  fuelRecords?: FuelRecord[];
+  invoicePoRecords?: InvoicePoRecord[];
 };
 export async function post(path: string, body: unknown) {
   const r = await fetch(`/api/${path}`, {

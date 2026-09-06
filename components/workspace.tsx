@@ -118,7 +118,7 @@ export function Workspace({
           ]),
         ),
     );
-  const detailViews = ['audit', 'timesheet', 'resources'];
+  const detailViews = ['audit', 'timesheet', 'resources', 'cost-control'];
   const loadedDetails = useRef(
     new Set(
       detailViews.filter((item) =>

@@ -23,6 +23,19 @@ await test('sidebar contract includes attendance and resource management modules
   assert.ok(dashboard >= 0 && dashboard < progress && progress < daily && daily < approvals);
 });
 
+await test('cost control uses live resource data, explicit VAT messaging and official Riyal asset', async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL('../components/cost-control.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../app/globals.css', import.meta.url), 'utf8'),
+  ]);
+  assert.match(source, /costSummary\(\{ month,/);
+  assert.match(source, /Total Recorded Project Cost — Non-VAT/);
+  assert.match(source, /VAT-included amount/);
+  assert.match(source, /Equipment Cost Analysis/);
+  assert.match(css, /\/saudi-riyal-symbol\.svg/);
+  assert.doesNotMatch(source, /manual manpower/i);
+});
+
 await test('manpower and equipment editor uses explicit form button types', async () => {
   const source = await readFile(
     new URL('../components/attendance.tsx', import.meta.url),

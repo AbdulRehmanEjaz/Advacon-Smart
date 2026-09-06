@@ -17,6 +17,7 @@ import { Editor, type Field, Modal, ProgressForm } from './progress-form';
 import { Supervisors } from './supervisors';
 import { ApprovedKpiProgress } from './approved-kpi-progress';
 import { ResourcesPage, TimesheetPage } from './attendance';
+import { CostControlPage } from './cost-control';
 import {
   calculateKpiProgress,
   productivity,
@@ -68,14 +69,9 @@ export function DataPages(props: Props) {
       ? <section className="card shell-loading">Loading resources…</section>
       : <ResourcesPage state={state} refresh={refresh} preview={preview} />;
   else if (view === 'cost-control')
-    content = (
-      <section className="card empty-note">
-        <h2 className="card-title">
-          Cost Control
-        </h2>
-        <p>Module configuration will be added in the next phase.</p>
-      </section>
-    );
+    content = props.detailLoading && !state.fuelRecords
+      ? <section className="card shell-loading">Loading cost control…</section>
+      : <CostControlPage state={state} refresh={refresh} preview={preview} />;
   else if (view === 'blocks')
     content = (
       <>
