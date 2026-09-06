@@ -1,10 +1,13 @@
-import { calculateKpiProgress } from '../domain/calculations';
+import {
+  calculateKpiProgress,
+  productivity,
+  readiness,
+} from '../domain/calculations';
+import { riyadhDate } from '../domain/date';
 import type { State } from '../types';
 
-type ReportState = Pick<
-  State,
-  'packages' | 'openingBalances' | 'submissions' | 'settings'
->;
+type ReportState = Pick<State, 'packages' | 'openingBalances' | 'submissions' | 'settings'> &
+  Partial<Pick<State, 'blocks'>>;
 
 const PAGE_W = 595;
 const PAGE_H = 842;
@@ -54,6 +57,13 @@ export function buildProgressPdf(state: ReportState, generatedAt = new Date()) {
     state.settings!,
   );
   const pending = state.submissions.filter((item) => item.status === 'WAITING').length;
+  const blockStates = (state.blocks || []).map((block) => readiness(block, state.submissions));
+  const production = productivity(
+    state.submissions,
+    'kpi-translocation-placement',
+    riyadhDate(generatedAt),
+    Number(state.settings?.translocationTarget || 10_000),
+  );
   const pages: string[] = [];
 
   let cover = rect(0, 0, PAGE_W, PAGE_H, '0.97 0.98 0.97');
@@ -144,8 +154,26 @@ export function buildProgressPdf(state: ReportState, generatedAt = new Date()) {
   activity += text(`Waiting: ${pending}`, 180, 750, 11, true);
   activity += text(`Returned: ${state.submissions.filter((item) => item.status === 'RETURNED').length}`, 300, 750, 11, true);
   activity += text(`Rejected: ${state.submissions.filter((item) => item.status === 'REJECTED').length}`, 430, 750, 11, true);
-  activity += text('Recent submissions', 42, 700, 11, true);
-  y = 670;
+  activity += text('Block readiness', 42, 704, 11, true, '0.03 0.36 0.22');
+  const ready = blockStates.filter((block) => ['READY', 'ACTIVE', 'COMPLETED'].includes(block.status)).length;
+  const partial = blockStates.filter((block) => ['PARTIALLY READY', 'IN PROGRESS'].includes(block.status)).length;
+  activity += text(
+    blockStates.length
+      ? `${ready} ready / active / complete  |  ${partial} partial / in progress  |  ${blockStates.length} total blocks`
+      : 'No block readiness records are configured.',
+    42,
+    680,
+    10,
+  );
+  activity += text("Today's productivity", 42, 638, 11, true, '0.03 0.36 0.22');
+  activity += text(
+    `${production.today.toLocaleString('en-US')} trees today  |  7-day average ${production.average.toFixed(1)} trees/day`,
+    42,
+    614,
+    10,
+  );
+  activity += text('Recent submissions', 42, 568, 11, true);
+  y = 540;
   for (const submission of state.submissions.slice(0, 12)) {
     const location = submission.blockId ? ` | Block ${submission.blockId}` : '';
     activity += text(`${submission.workDate.slice(0, 10)} | ${submission.supervisor.name}${location} | ${submission.status}`, 42, y, 9);

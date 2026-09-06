@@ -9,6 +9,9 @@ import {
 } from '@/lib/server/auth';
 import { getState, getStateDetail, mutate } from '@/lib/server/service';
 import { buildProgressPdf } from '@/lib/server/pdf';
+import { buildMonthlyTimesheetXlsx } from '@/lib/server/xlsx';
+import { riyadhDate } from '@/lib/domain/date';
+import type { State } from '@/lib/types';
 export const dynamic = 'force-dynamic';
 const reply = (data: unknown, status = 200, headers = {}) =>
   Response.json(data, {
@@ -26,7 +29,9 @@ async function handler(req: Request) {
         .parse(await req.json());
       const result = await login(
         body.pin,
-        req.headers.get('cf-connecting-ip') || req.headers.get('x-forwarded-for') || 'unknown',
+        req.headers.get('cf-connecting-ip') ||
+          req.headers.get('x-forwarded-for') ||
+          'unknown',
       );
       return result.error
         ? reply(
@@ -50,10 +55,47 @@ async function handler(req: Request) {
       return new Response(bytes, {
         headers: {
           'Content-Type': 'application/pdf',
-          'Content-Disposition': 'attachment; filename="tree-control-progress-report.pdf"',
+          'Content-Disposition': `attachment; filename="Tree_Translocation_Progress_Report_${riyadhDate()}.pdf"`,
           'Cache-Control': 'no-store',
+          Pragma: 'no-cache',
+          'X-Content-Type-Options': 'nosniff',
         },
       });
+    }
+    if (path === 'timesheet.xlsx' && req.method === 'GET') {
+      admin(user);
+      const month = url.searchParams.get('month') || '';
+      const today = riyadhDate();
+      if (!/^\d{4}-\d{2}$/.test(month) || month > today.slice(0, 7))
+        throw new HttpError(400, 'Select a valid current or past month.');
+      const bytes = buildMonthlyTimesheetXlsx(
+        (await getState(user, 'timesheet')) as unknown as State,
+        month,
+        today,
+      );
+      const label = new Date(`${month}-01T00:00:00Z`)
+        .toLocaleDateString('en-US', {
+          month: 'short',
+          year: 'numeric',
+          timeZone: 'UTC',
+        })
+        .replace(' ', '_');
+      return new Response(
+        bytes.buffer.slice(
+          bytes.byteOffset,
+          bytes.byteOffset + bytes.byteLength,
+        ) as ArrayBuffer,
+        {
+          headers: {
+            'Content-Type':
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition': `attachment; filename="Tree_Translocation_Timesheet_${label}.xlsx"`,
+            'Cache-Control': 'no-store',
+            Pragma: 'no-cache',
+            'X-Content-Type-Options': 'nosniff',
+          },
+        },
+      );
     }
     if (path === 'state' && req.method === 'GET') {
       const view = url.searchParams.get('view') || 'dashboard';

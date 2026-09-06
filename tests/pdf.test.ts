@@ -19,5 +19,7 @@ await test('professional report is a valid worker-safe PDF using official calcul
   assert.match(content, /Transportation & Delivery/);
   assert.doesNotMatch(content, /Pre-Delivery Inspection/);
   assert.match(content, /Final Testing, Documentation & Handover/);
+  assert.match(content, /Block readiness/);
+  assert.match(content, /Today's productivity/);
   assert.match(content, /%%EOF$/);
 });

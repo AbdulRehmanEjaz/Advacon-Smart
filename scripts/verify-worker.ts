@@ -252,6 +252,40 @@ try {
   assert.equal(attendanceData.manpowerAttendance.filter((item) => item.resourceId === labourId && item.date === riyadhDate()).length, 1);
   assert.equal(attendanceData.manpowerAttendance.find((item) => item.resourceId === labourId && item.date === riyadhDate())?.status, 'A');
 
+  const timesheetExport = await fetcher(
+    `${origin}/api/timesheet.xlsx?month=${riyadhDate().slice(0, 7)}`,
+    { headers: { Cookie: admin.cookie } },
+  );
+  assert.equal(timesheetExport.status, 200, await timesheetExport.clone().text());
+  assert.equal(
+    timesheetExport.headers.get('content-type'),
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  );
+  assert.match(timesheetExport.headers.get('content-disposition') || '', /\.xlsx"$/);
+  assert.equal(timesheetExport.headers.get('cache-control'), 'no-store');
+  assert.equal(
+    String.fromCharCode(...new Uint8Array(await timesheetExport.arrayBuffer()).slice(0, 2)),
+    'PK',
+  );
+  assert.equal((await fetcher(
+    `${origin}/api/timesheet.xlsx?month=${riyadhDate().slice(0, 7)}`,
+    { headers: { Cookie: supervisor.cookie } },
+  )).status, 403);
+  assert.equal((await fetcher(`${origin}/api/timesheet.xlsx?month=2999-01`, {
+    headers: { Cookie: admin.cookie },
+  })).status, 400);
+
+  const report = await fetcher(`${origin}/api/report.pdf`, {
+    headers: { Cookie: admin.cookie },
+  });
+  assert.equal(report.status, 200);
+  assert.equal(report.headers.get('content-type'), 'application/pdf');
+  assert.equal(report.headers.get('cache-control'), 'no-store');
+  assert.match(report.headers.get('content-disposition') || '', /Progress_Report_\d{4}-\d{2}-\d{2}\.pdf/);
+  assert.equal((await fetcher(`${origin}/api/report.pdf`, {
+    headers: { Cookie: supervisor.cookie },
+  })).status, 403);
+
   const createdResponse = await post(fetcher, 'supervisor', {
     action: 'create', name: 'Second Site Supervisor', pin: '678', confirmPin: '678',
   }, admin.cookie);

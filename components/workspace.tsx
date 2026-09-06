@@ -84,11 +84,15 @@ export function Workspace({
     [query, setQuery] = useState(''),
     [detailLoading, setDetailLoading] = useState(false);
   const detailViews = ['audit', 'timesheet', 'resources'];
-  const loadedDetails = useRef(new Set(
-    detailViews.filter((item) =>
-      item === 'audit' ? Boolean(initialState?.audit) : Boolean(initialState?.manpower),
+  const loadedDetails = useRef(
+    new Set(
+      detailViews.filter((item) =>
+        item === 'audit'
+          ? Boolean(initialState?.audit)
+          : Boolean(initialState?.manpower),
+      ),
     ),
-  ));
+  );
   const loadingDetails = useRef(new Set<string>());
   const detailSequence = useRef(0);
   async function refresh() {
@@ -106,7 +110,8 @@ export function Workspace({
       const d = (await r.json()) as State & { error?: string };
       if (!r.ok) throw Error(d.error);
       setState(d);
-      if (detailViews.includes(activeView)) loadedDetails.current.add(activeView);
+      if (detailViews.includes(activeView))
+        loadedDetails.current.add(activeView);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to load project.');
     }
@@ -389,7 +394,15 @@ export function Workspace({
                 {isAdmin ? 'Add Progress' : 'Add Daily Progress'}
               </Button>
               {isAdmin && (
-                <a href={href('reports')} className="secondary">
+                <a
+                  href={preview ? '#' : '/api/report.pdf'}
+                  download={!preview}
+                  aria-disabled={preview}
+                  className="secondary"
+                  onClick={
+                    preview ? (event) => event.preventDefault() : undefined
+                  }
+                >
                   <ArrowDownToLine size={14} />
                   View Reports
                 </a>
