@@ -362,21 +362,21 @@ function AdminDashboard({
                   axisLine={false}
                   tickLine={false}
                   minTickGap={35}
-                  tick={{ fill: '#9aa79e', fontSize: 9 }}
+                  tick={{ fill: '#7f8c84', fontSize: 12.5 }}
                 />
                 <YAxis
                   domain={[0, 100]}
                   axisLine={false}
                   tickLine={false}
                   ticks={[0, 25, 50, 75, 100]}
-                  tick={{ fill: '#9aa79e', fontSize: 9 }}
+                  tick={{ fill: '#7f8c84', fontSize: 12.5 }}
                   tickFormatter={(v) => `${v}%`}
                 />
                 <Tooltip
                   contentStyle={{
                     borderRadius: 12,
                     border: '1px solid #e9eeeb',
-                    fontSize: 11,
+                    fontSize: 13,
                   }}
                   formatter={(v) => `${Number(v).toFixed(2)}%`}
                 />

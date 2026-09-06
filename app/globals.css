@@ -2254,3 +2254,244 @@ td small {
     min-height: 34px;
   }
 }
+
+/* Global readability scale
+   Keep typography consistent across the existing shell and feature modules. */
+:root {
+  --type-page-title: clamp(1.75rem, 2vw, 2rem);
+  --type-section-title: 1.0625rem;
+  --type-card-label: 0.875rem;
+  --type-body: 0.9rem;
+  --type-secondary: 0.8125rem;
+  --type-table: 0.875rem;
+  --type-table-head: 0.8125rem;
+  --type-nav: 0.8375rem;
+  --leading-readable: 1.5;
+}
+
+body {
+  font-size: var(--type-body);
+  line-height: var(--leading-readable);
+}
+
+h1 {
+  font-size: var(--type-page-title);
+  line-height: 1.15;
+}
+
+.page-heading p,
+.card-subtitle,
+.empty-note,
+.site-note p,
+.pending-widget p,
+.productivity-card p,
+.productivity-footer,
+.gauge-number small,
+.field small,
+.detail-grid dt {
+  font-size: var(--type-secondary);
+  line-height: var(--leading-readable);
+}
+
+.card-title,
+.cost-chart h3,
+.cost-section h3,
+.monthly-section-heading h3 {
+  font-size: var(--type-section-title);
+  line-height: 1.3;
+}
+
+.nav-label {
+  font-size: 0.78125rem;
+  font-weight: 650;
+  letter-spacing: 0.075em;
+}
+
+.nav-link,
+.nav-group-trigger,
+.nav-group-items .nav-link {
+  font-size: var(--type-nav);
+  line-height: 1.35;
+}
+
+.nav-count,
+.search-wrap kbd,
+.eyebrow {
+  font-size: 0.71875rem;
+}
+
+.search-wrap input,
+.user-info strong,
+.field,
+.field input,
+.field select,
+.field textarea,
+.detail-grid dd,
+.primary,
+.secondary,
+.text-button {
+  font-size: var(--type-body);
+  line-height: 1.4;
+}
+
+.user-info small,
+.badge,
+.resource-status {
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.kpi-head,
+.mini-kpi span,
+.package-meta strong,
+.package-gauge strong {
+  font-size: var(--type-card-label);
+  line-height: 1.4;
+}
+
+.kpi small,
+.mini-kpi small,
+.package-meta small,
+.legend,
+.segmented button {
+  font-size: var(--type-secondary);
+  line-height: var(--leading-readable);
+}
+
+.package-row {
+  padding-block: 12px;
+}
+
+.block-tile small {
+  font-size: 0.71875rem;
+  line-height: 1.35;
+}
+
+.auth-note,
+.avatar,
+.pagination,
+.notice {
+  font-size: var(--type-secondary);
+  line-height: var(--leading-readable);
+}
+
+.activity-text strong {
+  font-size: var(--type-card-label);
+  line-height: 1.4;
+}
+
+.activity-text p {
+  font-size: var(--type-secondary);
+  line-height: var(--leading-readable);
+}
+
+table {
+  font-size: var(--type-table);
+  line-height: 1.45;
+}
+
+th {
+  padding: 14px 12px;
+  font-size: var(--type-table-head);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+td {
+  padding: 15px 12px;
+  font-size: var(--type-table);
+  line-height: 1.45;
+}
+
+td small,
+.responsive-table td::before {
+  font-size: var(--type-secondary);
+  line-height: 1.4;
+}
+
+.kpi-group-row td {
+  font-size: var(--type-table);
+  font-weight: 650;
+}
+
+.cost-hero h2,
+.attendance-hero h2 {
+  font-size: 1.375rem;
+  line-height: 1.25;
+}
+
+.cost-hero p,
+.cost-chart p,
+.cost-section p,
+.cost-kpi span,
+.cost-tooltip,
+.cost-records article strong,
+.attendance-hero p,
+.monthly-heading p,
+.attendance-stat,
+.attendance-bulk > span,
+.attendance-card p,
+.attendance-savebar > div,
+.monthly-cost-card span,
+.monthly-cost-card small {
+  font-size: var(--type-secondary);
+  line-height: var(--leading-readable);
+}
+
+.cost-kpi small,
+.cost-records article small,
+.cost-summary-card span,
+.cost-legend span,
+.fuel-mini-chart span,
+.fuel-mini-chart .riyal-money,
+.vat-preview span,
+.attendance-rate span {
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.vat-preview .riyal-money {
+  font-size: var(--type-card-label);
+}
+
+.cost-kpi strong {
+  font-size: 1.375rem;
+}
+
+.cost-record-amount,
+.vat-preview strong,
+.monthly-cost-card strong,
+.monthly-section-heading > strong,
+.month-nav strong,
+.attendance-rate,
+.attendance-card h3 {
+  font-size: var(--type-card-label);
+  line-height: 1.4;
+}
+
+.attendance-toggle button,
+.attendance-search input,
+.compact-check {
+  font-size: var(--type-secondary);
+  line-height: 1.4;
+}
+
+.status-button {
+  font-size: 0.75rem;
+}
+
+.attendance-empty h3 {
+  font-size: 1rem;
+}
+
+.attendance-empty p {
+  font-size: var(--type-secondary);
+  line-height: var(--leading-readable);
+}
+
+.recharts-cartesian-axis-tick-value,
+.recharts-legend-item-text,
+.recharts-tooltip-label,
+.recharts-tooltip-item {
+  font-size: 0.78125rem;
+}
