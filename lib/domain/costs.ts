@@ -39,12 +39,25 @@ export type InvoicePoRecord = {
   updatedAt: string;
 };
 
+function safeMoney(value: bigint): number {
+  if (value < BigInt(0) || value > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('INVALID_AMOUNT');
+  return Number(value);
+}
+
+export function inclusiveCost(enteredAmountHalalas: number, vatStatus: VatStatus) {
+  if (!Number.isSafeInteger(enteredAmountHalalas) || enteredAmountHalalas < 0) throw new Error('INVALID_AMOUNT');
+  const entered = BigInt(enteredAmountHalalas);
+  const net = vatStatus === 'VAT_INCLUDED' ? (entered * BigInt(100) + BigInt(57)) / BigInt(115) : entered;
+  const gross = vatStatus === 'VAT_INCLUDED' ? entered : net + (net * BigInt(15) + BigInt(50)) / BigInt(100);
+  return { netHalalas: safeMoney(net), vatHalalas: safeMoney(gross - net), grossHalalas: safeMoney(gross) };
+}
+
 export function vatBreakdown(enteredAmountHalalas: number, vatStatus: VatStatus) {
   if (!Number.isSafeInteger(enteredAmountHalalas) || enteredAmountHalalas < 0)
     throw new Error('INVALID_AMOUNT');
   const netAmountHalalas =
     vatStatus === 'VAT_INCLUDED'
-      ? Math.round((enteredAmountHalalas * 100) / 115)
+      ? inclusiveCost(enteredAmountHalalas, vatStatus).netHalalas
       : enteredAmountHalalas;
   return {
     enteredAmountHalalas,
@@ -106,7 +119,23 @@ export function costSummary(input: {
     (sum, row) => sum + row.vatRemovedHalalas,
     0,
   );
+  const combine = (costs: ReturnType<typeof inclusiveCost>[]) => ({
+    netHalalas: safeMoney(costs.reduce((sum, cost) => sum + BigInt(cost.netHalalas), BigInt(0))),
+    vatHalalas: safeMoney(costs.reduce((sum, cost) => sum + BigInt(cost.vatHalalas), BigInt(0))),
+    grossHalalas: safeMoney(costs.reduce((sum, cost) => sum + BigInt(cost.grossHalalas), BigInt(0))),
+  });
+  const recordCost = (row: FuelRecord | InvoicePoRecord) => inclusiveCost(row.enteredAmountHalalas, row.vatStatus);
+  const costs = {
+    manpower: combine(manpower.map((row) => inclusiveCost(row.totalHalalas, 'NON_VAT'))),
+    equipment: combine(equipment.map((row) => inclusiveCost(row.totalHalalas, 'NON_VAT'))),
+    fuel: combine(fuel.map(recordCost)),
+    invoices: combine(invoices.map(recordCost)),
+    pos: combine(purchaseOrders.map(recordCost)),
+  };
+  const total = combine(Object.values(costs));
   return {
+    costs,
+    total,
     manpower,
     equipment,
     fuel,
@@ -118,6 +147,6 @@ export function costSummary(input: {
     invoiceHalalas,
     poHalalas,
     vatRemovedHalalas,
-    totalHalalas: manpowerHalalas + equipmentHalalas + fuelHalalas + invoiceHalalas + poHalalas,
+    totalHalalas: total.grossHalalas,
   };
 }
