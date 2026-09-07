@@ -70,6 +70,7 @@ const groupedNavigation: {
     icon: WalletCards,
     items: [
       ['cost-control', 'Cost Control', WalletCards],
+      ['cost-records', 'Fuel, POs & Invoices', Droplets],
       ['resources', 'Manpower & Equipment', HardHat],
       ['timesheet', 'Timesheet & Attendance', Clock3],
     ],
@@ -118,13 +119,15 @@ export function Workspace({
           ]),
         ),
     );
-  const detailViews = ['audit', 'timesheet', 'resources', 'cost-control'];
+  const detailViews = ['dashboard', 'audit', 'timesheet', 'resources', 'cost-control', 'cost-records'];
   const loadedDetails = useRef(
     new Set(
       detailViews.filter((item) =>
         item === 'audit'
           ? Boolean(initialState?.audit)
-          : Boolean(initialState?.manpower),
+          : ['dashboard', 'cost-control', 'cost-records'].includes(item)
+            ? Boolean(initialState?.fuelRecords)
+            : Boolean(initialState?.manpower),
       ),
     ),
   );
@@ -145,6 +148,7 @@ export function Workspace({
       const d = (await r.json()) as State & { error?: string };
       if (!r.ok) throw Error(d.error);
       setState(d);
+      loadedDetails.current.clear();
       if (detailViews.includes(activeView))
         loadedDetails.current.add(activeView);
     } catch (e) {

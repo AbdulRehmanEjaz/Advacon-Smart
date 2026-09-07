@@ -765,6 +765,10 @@ h1 {
   display: flex;
   flex-direction: column;
 }
+.dashboard-costs {
+  grid-column: 2;
+  grid-row: 1;
+}
 .analytics,
 .activity-card,
 .readiness-card,
@@ -781,7 +785,7 @@ h1 {
   grid-row: 4;
 }
 .productivity-card {
-  grid-row: 5;
+  grid-row: 3;
 }
 .main-activity-dashboard .mini-grid {
   margin-bottom: 0;
@@ -1527,6 +1531,7 @@ td small {
   }
   .packages-card,
   .main-activity-dashboard,
+  .dashboard-costs,
   .analytics,
   .activity-card,
   .readiness-card,
@@ -1635,6 +1640,9 @@ td small {
 .cost-records article small { color: #87938b; font-size: 8px; overflow-wrap: anywhere; }
 .cost-record-amount { min-width: 130px; display: grid; justify-items: end; gap: 4px; color: #087443; font-size: 11px; font-weight: 650; }
 .cost-document-grid { align-items: start; }
+.cost-kpis.dashboard-cost-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dashboard-costs { min-width: 0; }
+@media (max-width: 600px) { .cost-kpis.dashboard-cost-kpis { grid-template-columns: 1fr; } .dashboard-cost-kpis .cost-kpi.featured { grid-column: auto; } }
 .cost-document-section { min-width: 0; }
 .cost-document-subtotal { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid #e5ebe7; color: #607168; font-size: 13px; }
 .cost-document-subtotal strong { color: #087443; font-size: 16px; }

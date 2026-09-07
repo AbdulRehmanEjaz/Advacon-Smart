@@ -313,6 +313,13 @@ try {
     headers: { Cookie: admin.cookie },
   });
   assert.equal(costResponse.status, 200);
+  const dashboardCosts = await fetcher(origin + '/api/state?view=dashboard', { headers: { Cookie: admin.cookie } });
+  assert.equal(dashboardCosts.status, 200);
+  assert.ok(Array.isArray(((await dashboardCosts.json()) as { fuelRecords: unknown[] }).fuelRecords));
+  assert.equal((await fetcher(origin + '/api/state?view=cost-records', { headers: { Cookie: supervisor.cookie } })).status, 403);
+  const managementCosts = await fetcher(origin + '/api/state?view=cost-records', { headers: { Cookie: admin.cookie } });
+  assert.equal(managementCosts.status, 200);
+  assert.ok(Array.isArray(((await managementCosts.json()) as { invoicePoRecords: unknown[] }).invoicePoRecords));
   const costData = await costResponse.json() as {
     fuelRecords: { enteredAmountHalalas: number; netAmountHalalas: number; vatRemovedHalalas: number }[];
     invoicePoRecords: { recordType: 'INVOICE' | 'PO'; invoiceNo: string; poNo: string | null; paidBy: string; enteredAmountHalalas: number; netAmountHalalas: number; vatRemovedHalalas: number }[];

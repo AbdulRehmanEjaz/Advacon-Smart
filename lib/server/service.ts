@@ -357,7 +357,7 @@ async function costControlDetails() {
 }
 
 async function details(view: string | undefined, user: Actor) {
-  if (view && ['audit', 'timesheet', 'resources', 'cost-control'].includes(view)) admin(user);
+  if (view && ['audit', 'timesheet', 'resources', 'cost-control', 'cost-records'].includes(view)) admin(user);
   if (view === 'audit') {
     const audit = await database()
       .prepare(`SELECT id,user_id AS userId,role,action,entity_type AS entityType,
@@ -375,7 +375,7 @@ async function details(view: string | undefined, user: Actor) {
   if (view === 'timesheet' || view === 'resources') {
     return attendanceDetails();
   }
-  if (view === 'cost-control') return costControlDetails();
+  if (view === 'cost-control' || view === 'cost-records' || (view === 'dashboard' && user.role === 'ADMIN')) return costControlDetails();
   return {};
 }
 
@@ -385,7 +385,7 @@ export async function getState(user: Actor, view?: string) {
 }
 
 export async function getStateDetail(user: Actor, view: string) {
-  if (!['audit', 'timesheet', 'resources', 'cost-control'].includes(view)) return {};
+  if (!['dashboard', 'audit', 'timesheet', 'resources', 'cost-control', 'cost-records'].includes(view)) return {};
   return details(view, user);
 }
 

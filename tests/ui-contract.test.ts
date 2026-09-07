@@ -63,10 +63,10 @@ await test('detailed KPI register lives only on its dedicated fast workspace vie
   assert.doesNotMatch(dashboard, /className="card kpi-detail-card"/);
   assert.match(dashboard, /href=\{href\('kpi-progress'\)\}/);
   assert.match(dashboard, /aria-label=\{arrowLabel/);
-  const mainActivity = dashboard.indexOf('Main Activity Progress');
-  const analytics = dashboard.indexOf('Project Analytics');
-  const recent = dashboard.indexOf('Recent Site Activity');
-  assert.ok(mainActivity >= 0 && mainActivity < analytics && analytics < recent);
+  assert.doesNotMatch(dashboard, /Main Activity Progress|Recent Site Activity/);
+  assert.match(dashboard, /<CostKpiCards state=\{state\} dashboard/);
+  assert.match(dataPages, /<BlockReadinessOverview state=\{state\}/);
+  assert.match(dataPages, /Recent Site Activity/);
   assert.match(page, /Approved KPI Progress/);
   assert.match(page, /Official/);
   assert.match(page, /KPI \/ Sub-Activity/);

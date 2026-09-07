@@ -12,7 +12,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge, Kpi } from './dashboard';
+import { Badge, Kpi, ActivityList, BlockReadinessOverview } from './dashboard';
 import { Editor, type Field, Modal, ProgressForm } from './progress-form';
 import { Supervisors } from './supervisors';
 import { ApprovedKpiProgress } from './approved-kpi-progress';
@@ -68,13 +68,14 @@ export function DataPages(props: Props) {
     content = props.detailLoading && !state.manpower
       ? <section className="card shell-loading">Loading resources…</section>
       : <ResourcesPage state={state} refresh={refresh} preview={preview} />;
-  else if (view === 'cost-control')
+  else if (view === 'cost-control' || view === 'cost-records')
     content = props.detailLoading && !state.fuelRecords
       ? <section className="card shell-loading">Loading cost control…</section>
-      : <CostControlPage state={state} refresh={refresh} preview={preview} />;
+      : <CostControlPage state={state} refresh={refresh} preview={preview} management={view === 'cost-records'} />;
   else if (view === 'blocks')
     content = (
       <>
+        <BlockReadinessOverview state={state} preview={preview} />
         <div className="notice info">
           Block-level capacities and row / irrigation allocations must be
           entered from the approved design. Zone totals are fixed; no equal
@@ -419,7 +420,7 @@ export function DataPages(props: Props) {
   } else if (view === 'quality')
     content = <Quality {...props} setEdit={setEdit} />;
   else if (view === 'audit')
-    content = <Audit state={state} loading={Boolean(props.detailLoading)} />;
+    content = <><section className="card"><div className="card-heading"><h2 className="card-title">Recent Site Activity</h2></div><ActivityList state={state} /></section><Audit state={state} loading={Boolean(props.detailLoading)} /></>;
   else
     content = (
       <div className="card empty-note">

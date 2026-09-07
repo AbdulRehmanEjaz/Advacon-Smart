@@ -109,7 +109,7 @@ function DocumentSection({ kind, items, subtotal, preview, onAdd, onEdit, onArch
   </section>;
 }
 
-export function CostControlPage({ state, refresh, preview }: { state: State; refresh: () => Promise<void>; preview: boolean }) {
+export function CostControlPage({ state, refresh, preview, management = false }: { state: State; refresh: () => Promise<void>; preview: boolean; management?: boolean }) {
   const throughDate = riyadhDate();
   const [fuelEditor, setFuelEditor] = useState<FuelRecord | 'new' | null>(null);
   const [invoiceEditor, setInvoiceEditor] = useState<InvoicePoRecord | 'new' | null>(null);
@@ -144,31 +144,41 @@ export function CostControlPage({ state, refresh, preview }: { state: State; ref
     try { await post(path, { action: 'archive', id }); await refresh(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to archive record.'); }
   }
-  return <div className="cost-page">
-    <section className="card cost-hero"><div><span className="eyebrow">FINANCIAL CONTROL</span><h2>Total Recorded Project Cost — Non-VAT</h2><p>Live attendance-derived costs plus recorded Fuel, Invoice and PO net amounts.</p></div></section>
-    {error && <div className="notice" role="alert">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
-    <div className="cost-kpis">
-      <article className="cost-kpi featured"><span>Total Recorded Project Cost — Non-VAT</span><strong><Money value={summary.totalHalalas} /></strong><small>No VAT is included in this figure</small></article>
-      <article className="cost-kpi"><UsersRound /><span>Manpower Total</span><strong><Money value={summary.manpowerHalalas} /></strong><small>Present days × 130</small></article>
-      <article className="cost-kpi"><Wrench /><span>Equipment Total</span><strong><Money value={summary.equipmentHalalas} /></strong><small>Present days × equipment rate</small></article>
-      <article className="cost-kpi"><Fuel /><span>Fuel Net Cost</span><strong><Money value={summary.fuelHalalas} /></strong><small>After applicable VAT removal</small></article>
-      <article className="cost-kpi"><ReceiptText /><span>Invoices Net</span><strong><Money value={summary.invoiceHalalas} /></strong><small>Invoice net project cost</small></article>
-      <article className="cost-kpi"><FileCheck2 /><span>POs Net</span><strong><Money value={summary.poHalalas} /></strong><small>Purchase order net project cost</small></article>
-      <article className="cost-kpi vat"><FileText /><span>Total VAT Removed</span><strong><Money value={summary.vatRemovedHalalas} /></strong><small>VAT-inclusive records only</small></article>
-    </div>
-    <div className="cost-chart-grid">
-      <section className="card cost-chart"><div className="card-heading"><div><h3>Cost Composition</h3><p>Project-to-date · non-VAT amounts</p></div></div><ResponsiveContainer width="100%" height={250}><PieChart><Pie data={composition} dataKey="value" nameKey="name" innerRadius={62} outerRadius={92} paddingAngle={3} /><Tooltip content={<CostTooltip />} /></PieChart></ResponsiveContainer><div className="cost-legend">{composition.map((item, index) => <span key={item.name}><i style={{ background: COLORS[index] }} />{item.name} <b><Money value={item.value} /></b></span>)}</div></section>
-      <section className="card cost-chart wide"><div className="card-heading"><div><h3>Monthly Cost Trend</h3><p>Monthly history from the first project record</p></div></div><ResponsiveContainer width="100%" height={250}><AreaChart data={trend}><defs><linearGradient id="costFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#087443" stopOpacity={0.28} /><stop offset="1" stopColor="#087443" stopOpacity={0.02} /></linearGradient></defs><CartesianGrid vertical={false} stroke="#edf1ee" /><XAxis dataKey="month" axisLine={false} tickLine={false} /><YAxis hide /><Tooltip content={<CostTooltip />} /><Area type="monotone" dataKey="value" name="Project cost" stroke="#087443" strokeWidth={3} fill="url(#costFill)" /></AreaChart></ResponsiveContainer></section>
-    </div>
-    <section className="card cost-section"><div className="card-heading"><div><h3>Equipment Cost Analysis</h3><p>Live equipment attendance and configured daily rates</p></div><strong><Money value={summary.equipmentHalalas} /></strong></div>{!summary.equipment.length ? <p className="cost-empty">No equipment records are available.</p> : <><ResponsiveContainer width="100%" height={220}><BarChart data={summary.equipment.map((row) => ({ name: row.resource.name, company: row.resource.company, value: row.totalHalalas }))}><CartesianGrid vertical={false} stroke="#edf1ee" /><XAxis dataKey="name" axisLine={false} tickLine={false} /><YAxis hide /><Tooltip content={<CostTooltip />} /><Bar dataKey="value" fill="#2f9b67" radius={[8, 8, 0, 0]} /></BarChart></ResponsiveContainer><div className="table-scroll"><table className="responsive-table"><thead><tr><th>Equipment</th><th>Rental Company</th><th>Project-to-date Total</th></tr></thead><tbody>{summary.equipment.map((row) => <tr key={row.resource.id}><td data-label="Equipment"><strong>{row.resource.name}</strong></td><td data-label="Rental Company">{row.resource.company}</td><td data-label="Project-to-date Total"><Money value={row.totalHalalas} /></td></tr>)}</tbody><tfoot><tr><th colSpan={2}>Equipment Total</th><th><Money value={summary.equipmentHalalas} /></th></tr></tfoot></table></div></>}</section>
+  if (management) return <div className="cost-page">
+    {error && <div className="notice" role="alert">{error}</div>}
     <section className="card cost-section"><div className="card-heading"><div><h3>Fuel</h3><p>Petrol and Diesel · clear VAT treatment</p></div><Button className="primary" disabled={preview} onClick={() => setFuelEditor('new')}><Plus size={14} /> Add Fuel</Button></div><div className="fuel-mini-chart">{fuelAnalysis.map((item) => <div key={item.name}><span>{item.name}</span><strong>{item.litres.toLocaleString()} L</strong><Money value={item.value} /></div>)}</div>{!summary.fuel.length ? <p className="cost-empty">No fuel costs recorded through today.</p> : <div className="cost-records">{summary.fuel.map((item) => <article key={item.id}><div><strong>{item.fuelType === 'PETROL' ? 'Petrol' : 'Diesel'} · {(item.quantityMillilitres / 1000).toLocaleString()} L</strong><small>{item.date} · {item.vatStatus === 'VAT_INCLUDED' ? 'VAT Included' : 'Non-VAT'}</small></div><div className="cost-record-amount"><Money value={item.netAmountHalalas} /><small>{item.vatRemovedHalalas ? `VAT removed ${formatSar(item.vatRemovedHalalas)}` : 'Entered amount used in full'}</small></div><div className="inline-actions"><button className="text-button" onClick={() => setFuelEditor(item)}><Pencil size={12} /> Edit</button><button className="text-button danger" onClick={() => void archive('fuel', item.id)}><Trash2 size={12} /> Archive</button></div></article>)}</div>}</section>
     <div className="two-columns cost-document-grid">
       <DocumentSection kind="INVOICE" items={summary.invoices} subtotal={summary.invoiceHalalas} preview={preview} onAdd={() => setInvoiceEditor('new')} onEdit={setInvoiceEditor} onArchive={(id) => void archive('invoice-po', id)} />
       <DocumentSection kind="PO" items={summary.purchaseOrders} subtotal={summary.poHalalas} preview={preview} onAdd={() => setPoEditor('new')} onEdit={setPoEditor} onArchive={(id) => void archive('invoice-po', id)} />
     </div>
-    <section className="card cost-summary-card"><div><Droplets /><span>Project-to-date formula</span><strong>Manpower + Equipment + Fuel Net + Invoices Net + POs Net</strong></div><strong><Money value={summary.totalHalalas} /></strong></section>
     {fuelEditor && <FuelEditor item={fuelEditor === 'new' ? undefined : fuelEditor} onClose={() => setFuelEditor(null)} onSaved={refresh} />}
     {invoiceEditor && <CostDocumentEditor kind="INVOICE" item={invoiceEditor === 'new' ? undefined : invoiceEditor} onClose={() => setInvoiceEditor(null)} onSaved={refresh} />}
     {poEditor && <CostDocumentEditor kind="PO" item={poEditor === 'new' ? undefined : poEditor} onClose={() => setPoEditor(null)} onSaved={refresh} />}
   </div>;
+  return <div className="cost-page">
+    <section className="card cost-hero"><div><span className="eyebrow">FINANCIAL CONTROL</span><h2>Total Recorded Project Cost — Non-VAT</h2><p>Live attendance-derived costs plus recorded Fuel, Invoice and PO net amounts.</p></div></section>
+    {error && <div className="notice" role="alert">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
+    <CostKpiCards state={state} />
+    <div className="cost-chart-grid">
+      <section className="card cost-chart"><div className="card-heading"><div><h3>Cost Composition</h3><p>Project-to-date · non-VAT amounts</p></div></div><ResponsiveContainer width="100%" height={250}><PieChart><Pie data={composition} dataKey="value" nameKey="name" innerRadius={62} outerRadius={92} paddingAngle={3} /><Tooltip content={<CostTooltip />} /></PieChart></ResponsiveContainer><div className="cost-legend">{composition.map((item, index) => <span key={item.name}><i style={{ background: COLORS[index] }} />{item.name} <b><Money value={item.value} /></b></span>)}</div></section>
+      <section className="card cost-chart wide"><div className="card-heading"><div><h3>Monthly Cost Trend</h3><p>Monthly history from the first project record</p></div></div><ResponsiveContainer width="100%" height={250}><AreaChart data={trend}><defs><linearGradient id="costFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#087443" stopOpacity={0.28} /><stop offset="1" stopColor="#087443" stopOpacity={0.02} /></linearGradient></defs><CartesianGrid vertical={false} stroke="#edf1ee" /><XAxis dataKey="month" axisLine={false} tickLine={false} /><YAxis hide /><Tooltip content={<CostTooltip />} /><Area type="monotone" dataKey="value" name="Project cost" stroke="#087443" strokeWidth={3} fill="url(#costFill)" /></AreaChart></ResponsiveContainer></section>
+    </div>
+    <section className="card cost-section"><div className="card-heading"><div><h3>Equipment Cost Analysis</h3><p>Live equipment attendance and configured daily rates</p></div><strong><Money value={summary.equipmentHalalas} /></strong></div>{!summary.equipment.length ? <p className="cost-empty">No equipment records are available.</p> : <><ResponsiveContainer width="100%" height={220}><BarChart data={summary.equipment.map((row) => ({ name: row.resource.name, company: row.resource.company, value: row.totalHalalas }))}><CartesianGrid vertical={false} stroke="#edf1ee" /><XAxis dataKey="name" axisLine={false} tickLine={false} /><YAxis hide /><Tooltip content={<CostTooltip />} /><Bar dataKey="value" fill="#2f9b67" radius={[8, 8, 0, 0]} /></BarChart></ResponsiveContainer><div className="table-scroll"><table className="responsive-table"><thead><tr><th>Equipment</th><th>Rental Company</th><th>Project-to-date Total</th></tr></thead><tbody>{summary.equipment.map((row) => <tr key={row.resource.id}><td data-label="Equipment"><strong>{row.resource.name}</strong></td><td data-label="Rental Company">{row.resource.company}</td><td data-label="Project-to-date Total"><Money value={row.totalHalalas} /></td></tr>)}</tbody><tfoot><tr><th colSpan={2}>Equipment Total</th><th><Money value={summary.equipmentHalalas} /></th></tr></tfoot></table></div></>}</section>
+    <section className="card cost-summary-card"><div><Droplets /><span>Project-to-date formula</span><strong>Manpower + Equipment + Fuel Net + Invoices Net + POs Net</strong></div><strong><Money value={summary.totalHalalas} /></strong></section>
+
+  </div>;
+}
+
+export function CostKpiCards({ state, dashboard = false }: { state: State; dashboard?: boolean }) {
+  if (!state.fuelRecords || !state.invoicePoRecords || !state.manpower) return <output className="card">Loading project costs…</output>;
+  const summary = costSummary({ throughDate: riyadhDate(), manpower: state.manpower, equipment: state.equipment || [], manpowerAttendance: state.manpowerAttendance || [], equipmentAttendance: state.equipmentAttendance || [], fuelRecords: state.fuelRecords, invoicePoRecords: state.invoicePoRecords });
+  return (<div className={`cost-kpis ${dashboard ? 'dashboard-cost-kpis' : ''}`}>
+      <article className="cost-kpi featured"><span>Total Recorded Project Cost — Non-VAT</span><strong><Money value={summary.totalHalalas} /></strong><small>No VAT is included in this figure</small></article>
+      <article className="cost-kpi"><UsersRound /><span>Manpower Total — Excluding VAT</span><strong><Money value={summary.manpowerHalalas} /></strong><small>Present days × 130</small></article>
+      <article className="cost-kpi"><Wrench /><span>Equipment Total — Excluding VAT</span><strong><Money value={summary.equipmentHalalas} /></strong><small>Present days × equipment rate</small></article>
+      <article className="cost-kpi"><Fuel /><span>Net Fuel Cost — Excluding VAT</span><strong><Money value={summary.fuelHalalas} /></strong><small>After applicable VAT removal</small></article>
+      <article className="cost-kpi"><ReceiptText /><span>Net Invoices Value — Excluding VAT</span><strong><Money value={summary.invoiceHalalas} /></strong><small>Invoice net project cost</small></article>
+      <article className="cost-kpi"><FileCheck2 /><span>Net POs Value — Excluding VAT</span><strong><Money value={summary.poHalalas} /></strong><small>Purchase order net project cost</small></article>
+      {!dashboard && <article className="cost-kpi vat"><FileText /><span>Total VAT Removed</span><strong><Money value={summary.vatRemovedHalalas} /></strong><small>VAT-inclusive records only</small></article>}
+    </div>);
 }

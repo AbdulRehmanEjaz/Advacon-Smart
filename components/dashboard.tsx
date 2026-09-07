@@ -1,5 +1,6 @@
 'use client';
 import { useMemo, useState } from 'react';
+import { CostKpiCards } from './cost-control';
 import {
   ArrowUpRight,
   ArrowRight,
@@ -227,7 +228,6 @@ function AdminDashboard({
     ),
     planned = plannedProgress(state.packages, today()),
     pending = state.submissions.filter((s) => s.status === 'WAITING');
-  const blocks = state.blocks.map((b) => readiness(b, state.submissions));
   const production = productivity(
     state.submissions,
     'kpi-translocation-placement',
@@ -293,35 +293,7 @@ function AdminDashboard({
       </div>
       <div className="dashboard-primary-grid">
         <div className="dashboard-primary-main">
-          <section
-            className="main-activity-dashboard"
-            aria-labelledby="main-activity-progress"
-          >
-            <div className="card-heading">
-              <div>
-                <h2 className="card-title" id="main-activity-progress">
-                  Main Activity Progress
-                </h2>
-                <p className="card-subtitle">
-                  Approved completion across all seven main activities
-                </p>
-              </div>
-            </div>
-            <div className="mini-grid approved-groups">
-              {calculated.groups.map((group) => (
-                <div className="mini-kpi" key={group.id}>
-                  <span>{group.name}</span>
-                  <strong>{progressLabel(group.progress)}</strong>
-                  <div className="progress-track">
-                    <span style={{ width: `${group.progress}%` }} />
-                  </div>
-                  <small>
-                    {group.earned.toFixed(2)}% earned · {group.weight}% weight
-                  </small>
-                </div>
-              ))}
-            </div>
-          </section>
+          <section className="dashboard-costs"><CostKpiCards state={state} dashboard /></section>
           <article className="card analytics">
           <div className="card-heading">
             <div>
@@ -416,41 +388,7 @@ function AdminDashboard({
             </span>
           </div>
           </article>
-          <article className="card activity-card">
-            <div className="card-heading">
-              <h2 className="card-title">Recent Site Activity</h2>
-              <a href={href('daily')} className="text-button">
-                View all <ArrowUpRight size={12} />
-              </a>
-            </div>
-            <ActivityList state={state} />
-          </article>
-          <article className="card readiness-card">
-            <div className="card-heading">
-              <div>
-                <h2 className="card-title">Block Readiness</h2>
-                <p className="card-subtitle">Every block. Every prerequisite.</p>
-              </div>
-              <a href={href('blocks')} className="text-button">
-                View blocks <ArrowUpRight size={12} />
-              </a>
-            </div>
-            <div className="blocks-grid">
-              {blocks.map((b) => (
-                <a
-                  href={href('blocks') + `#${b.id}`}
-                  className={`block-tile ${b.ready ? 'ready' : b.hold ? 'hold' : b.status === 'PARTIALLY READY' ? 'partial' : ''}`}
-                  key={b.id}
-                  title={`Zone ${b.zoneId} · Capacity ${b.capacity ?? 'not set'} · ${b.reasons.join('. ')}`}
-                >
-                  <strong>{b.id}</strong>
-                  <small>
-                    {b.status === 'NOT STARTED' ? 'NOT STARTED' : b.status}
-                  </small>
-                </a>
-              ))}
-            </div>
-          </article>
+
         </div>
         <div className="dashboard-primary-side">
           <article className="card packages-card">
@@ -548,7 +486,7 @@ function AdminDashboard({
     </>
   );
 }
-function ActivityList({ state }: { state: State }) {
+export function ActivityList({ state }: { state: State }) {
   return state.submissions.length ? (
     state.submissions.slice(0, 4).map((s) => (
       <div className="activity-row" key={s.id}>
@@ -570,4 +508,34 @@ function ActivityList({ state }: { state: State }) {
       Site submissions will appear here.
     </div>
   );
+}
+export function BlockReadinessOverview({ state, preview }: { state: State; preview: boolean }) {
+ const blocks = state.blocks.map((b) => readiness(b, state.submissions));
+ const href = (view: string) => preview ? '/design-preview?view=' + view : '/workspace/' + view;
+ return (<article className="card readiness-card">
+            <div className="card-heading">
+              <div>
+                <h2 className="card-title">Block Readiness</h2>
+                <p className="card-subtitle">Every block. Every prerequisite.</p>
+              </div>
+              <a href={href('blocks')} className="text-button">
+                View blocks <ArrowUpRight size={12} />
+              </a>
+            </div>
+            <div className="blocks-grid">
+              {blocks.map((b) => (
+                <a
+                  href={href('blocks') + `#${b.id}`}
+                  className={`block-tile ${b.ready ? 'ready' : b.hold ? 'hold' : b.status === 'PARTIALLY READY' ? 'partial' : ''}`}
+                  key={b.id}
+                  title={`Zone ${b.zoneId} · Capacity ${b.capacity ?? 'not set'} · ${b.reasons.join('. ')}`}
+                >
+                  <strong>{b.id}</strong>
+                  <small>
+                    {b.status === 'NOT STARTED' ? 'NOT STARTED' : b.status}
+                  </small>
+                </a>
+              ))}
+            </div>
+          </article>);
 }
