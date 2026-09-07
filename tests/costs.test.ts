@@ -17,6 +17,19 @@ void test('money and litre input is converted to exact scaled integers', () => {
   assert.throws(() => parseScaledDecimal('1.999', 100));
 });
 
+void test('project-to-date costs include previous months and exclude future and archived records', () => {
+  const financial = (date: string, active = true) => ({ id: date, recordType: 'INVOICE' as const, date, vatStatus: 'NON_VAT' as const, invoiceNo: date, poNo: null, paidBy: 'Project', enteredAmountHalalas: 10000, netAmountHalalas: 10000, vatRemovedHalalas: 0, description: '', active, createdAt: '', updatedAt: '' });
+  const result = costSummary({
+    throughDate: '2026-09-07', manpower: [resource('worker', 13000)], equipment: [],
+    manpowerAttendance: [attendance('worker', '2025-01-01', 'P'), attendance('worker', '2026-09-07', 'P'), attendance('worker', '2026-09-08', 'P')],
+    equipmentAttendance: [], fuelRecords: [],
+    invoicePoRecords: [financial('2025-01-01'), financial('2026-09-07'), financial('2026-09-08'), financial('2026-08-01', false)],
+  });
+  assert.equal(result.manpowerHalalas, 26000);
+  assert.equal(result.invoiceHalalas, 20000);
+  assert.equal(result.totalHalalas, 46000);
+});
+
 void test('project cost uses attendance and net financial records for the selected month', () => {
   const summary = costSummary({
     month: '2026-09',

@@ -28,7 +28,7 @@ await test('cost control uses live resource data, explicit VAT messaging and off
     readFile(new URL('../components/cost-control.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../app/globals.css', import.meta.url), 'utf8'),
   ]);
-  assert.match(source, /costSummary\(\{ month,/);
+  assert.match(source, /costSummary\(\{ throughDate,/);
   assert.match(source, /Total Recorded Project Cost — Non-VAT/);
   assert.match(source, /Gross Amount/);
   assert.match(source, /Invoices Net/);

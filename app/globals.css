@@ -1609,7 +1609,7 @@ td small {
 .cost-kpi > svg { width: 18px; height: 18px; color: #3d8d61; }
 .cost-kpi span { color: #728077; font-size: 10px; font-weight: 600; }
 .cost-kpi strong { min-width: 0; color: #163521; font-size: clamp(28px, 2.2vw, 34px); font-weight: 700; line-height: 1.05; letter-spacing: -0.035em; }
-.cost-kpi strong .riyal-money { white-space: nowrap; }
+.cost-kpi strong .riyal-money { font-size: inherit; font-weight: inherit; color: inherit; line-height: inherit; white-space: normal; overflow-wrap: anywhere; }
 .cost-kpi small { color: #929d96; font-size: 8px; }
 .cost-kpi.featured span, .cost-kpi.featured strong { color: #fff; }
 .cost-kpi.featured small { color: #cce8d7; }
@@ -2460,7 +2460,7 @@ td small,
 }
 
 .cost-kpi strong {
-  font-size: clamp(1.75rem, 2.2vw, 2.125rem);
+  font-size: clamp(2rem, 2.5vw, 2.5rem);
 }
 
 .cost-record-amount,

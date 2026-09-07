@@ -79,7 +79,8 @@ export function attendanceCostForMonth(
 }
 
 export function costSummary(input: {
-  month: string;
+  month?: string;
+  throughDate?: string;
   manpower: Resource[];
   equipment: Resource[];
   manpowerAttendance: AttendanceRecord[];
@@ -87,10 +88,13 @@ export function costSummary(input: {
   fuelRecords: FuelRecord[];
   invoicePoRecords: InvoicePoRecord[];
 }) {
-  const manpower = attendanceCostForMonth(input.manpower, input.manpowerAttendance, input.month);
-  const equipment = attendanceCostForMonth(input.equipment, input.equipmentAttendance, input.month);
-  const fuel = input.fuelRecords.filter((record) => record.active && record.date.startsWith(input.month));
-  const documents = input.invoicePoRecords.filter((record) => record.active && record.date.startsWith(input.month));
+  const inPeriod = (record: { date: string }) =>
+    (!input.month || record.date.startsWith(input.month)) &&
+    (!input.throughDate || record.date <= input.throughDate);
+  const manpower = attendanceCostForMonth(input.manpower, input.manpowerAttendance.filter(inPeriod), input.month || '');
+  const equipment = attendanceCostForMonth(input.equipment, input.equipmentAttendance.filter(inPeriod), input.month || '');
+  const fuel = input.fuelRecords.filter((record) => record.active && inPeriod(record));
+  const documents = input.invoicePoRecords.filter((record) => record.active && inPeriod(record));
   const invoices = documents.filter((record) => record.recordType === 'INVOICE');
   const purchaseOrders = documents.filter((record) => record.recordType === 'PO');
   const manpowerHalalas = manpower.reduce((sum, row) => sum + row.totalHalalas, 0);
