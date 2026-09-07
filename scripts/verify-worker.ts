@@ -168,6 +168,25 @@ try {
       )
     ).replace(/\s*\r?\n\s*/g, ' '),
   );
+  await d1.prepare(`INSERT INTO invoice_po_records
+    (id,record_date,vat_status,invoice_no,po_no,entered_amount_halalas,net_amount_halalas,
+     vat_removed_halalas,description,active,created_by,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,1,?,?,?)`).bind(
+      'legacy-po', riyadhDate(), 'NON_VAT', null, 'LEGACY-PO', 25_000, 25_000,
+      0, 'Preserved migration record', 'initial-admin', riyadhDate(), riyadhDate(),
+    ).run();
+  await d1.exec(
+    (
+      await readFile(
+        new URL('../d1/migrations/0007_split_invoices_pos.sql', import.meta.url),
+        'utf8',
+      )
+    ).replace(/\s*\r?\n\s*/g, ' '),
+  );
+  assert.equal(
+    (await d1.prepare("SELECT COUNT(*) AS count FROM invoice_po_records WHERE id='legacy-po'").first<{ count: number }>())?.count,
+    1,
+  );
   assert.equal(
     (await d1.prepare("SELECT COUNT(*) AS count FROM daily_submissions WHERE id='migration-preservation'").first<{ count: number }>())?.count,
     1,
@@ -276,23 +295,49 @@ try {
     vatStatus: 'VAT_INCLUDED', enteredAmountHalalas: 115_000, description: 'Generator fuel',
   }, admin.cookie)).status, 200);
   assert.equal((await post(fetcher, 'invoice-po', {
-    action: 'save', date: riyadhDate(), vatStatus: 'NON_VAT', invoiceNo: 'INV-001', poNo: '',
+    action: 'save', recordType: 'INVOICE', date: riyadhDate(), vatStatus: 'NON_VAT',
+    invoiceNo: 'INV-001', poNo: '', paidBy: 'Project Office',
     enteredAmountHalalas: 1_000_000, description: 'Site services',
   }, admin.cookie)).status, 200);
+  assert.equal((await post(fetcher, 'invoice-po', {
+    action: 'save', recordType: 'PO', date: riyadhDate(), vatStatus: 'VAT_INCLUDED',
+    invoiceNo: 'INV-002', poNo: 'PO-001', paidBy: 'Procurement',
+    enteredAmountHalalas: 1_150_000, description: 'Plant order',
+  }, admin.cookie)).status, 200);
+  assert.equal((await post(fetcher, 'invoice-po', {
+    action: 'save', recordType: 'PO', date: riyadhDate(), vatStatus: 'NON_VAT',
+    invoiceNo: 'INV-003', poNo: '', paidBy: 'Procurement',
+    enteredAmountHalalas: 100_000, description: '',
+  }, admin.cookie)).status, 400);
   const costResponse = await fetcher(origin + '/api/state?view=cost-control', {
     headers: { Cookie: admin.cookie },
   });
   assert.equal(costResponse.status, 200);
   const costData = await costResponse.json() as {
     fuelRecords: { enteredAmountHalalas: number; netAmountHalalas: number; vatRemovedHalalas: number }[];
-    invoicePoRecords: { enteredAmountHalalas: number; netAmountHalalas: number; vatRemovedHalalas: number }[];
+    invoicePoRecords: { recordType: 'INVOICE' | 'PO'; invoiceNo: string; poNo: string | null; paidBy: string; enteredAmountHalalas: number; netAmountHalalas: number; vatRemovedHalalas: number }[];
   };
   assert.deepEqual(costData.fuelRecords[0], {
     ...costData.fuelRecords[0], enteredAmountHalalas: 115_000,
     netAmountHalalas: 100_000, vatRemovedHalalas: 15_000,
   });
-  assert.equal(costData.invoicePoRecords[0].netAmountHalalas, 1_000_000);
-  assert.equal(costData.invoicePoRecords[0].vatRemovedHalalas, 0);
+  const invoiceRecord = costData.invoicePoRecords.find((item) => item.recordType === 'INVOICE');
+  const poRecord = costData.invoicePoRecords.find((item) => item.recordType === 'PO');
+  const legacyPoRecord = costData.invoicePoRecords.find((item) => item.poNo === 'LEGACY-PO');
+  assert.deepEqual(invoiceRecord && {
+    recordType: invoiceRecord.recordType, invoiceNo: invoiceRecord.invoiceNo,
+    poNo: invoiceRecord.poNo, paidBy: invoiceRecord.paidBy,
+    netAmountHalalas: invoiceRecord.netAmountHalalas,
+    vatRemovedHalalas: invoiceRecord.vatRemovedHalalas,
+  }, { recordType: 'INVOICE', invoiceNo: 'INV-001', poNo: null, paidBy: 'Project Office', netAmountHalalas: 1_000_000, vatRemovedHalalas: 0 });
+  assert.deepEqual(poRecord && {
+    recordType: poRecord.recordType, invoiceNo: poRecord.invoiceNo,
+    poNo: poRecord.poNo, paidBy: poRecord.paidBy,
+    netAmountHalalas: poRecord.netAmountHalalas,
+    vatRemovedHalalas: poRecord.vatRemovedHalalas,
+  }, { recordType: 'PO', invoiceNo: 'INV-002', poNo: 'PO-001', paidBy: 'Procurement', netAmountHalalas: 1_000_000, vatRemovedHalalas: 150_000 });
+  assert.equal(legacyPoRecord?.recordType, 'PO');
+  assert.equal(legacyPoRecord?.netAmountHalalas, 25_000);
 
   const timesheetExport = await fetcher(
     `${origin}/api/timesheet.xlsx?month=${riyadhDate().slice(0, 7)}`,

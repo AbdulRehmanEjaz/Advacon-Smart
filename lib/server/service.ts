@@ -325,7 +325,8 @@ async function costControlDetails() {
         created_at AS createdAt,updated_at AS updatedAt
         FROM fuel_records ORDER BY record_date DESC,created_at DESC`),
       database().prepare(`SELECT id,record_date AS date,vat_status AS vatStatus,
-        invoice_no AS invoiceNo,po_no AS poNo,entered_amount_halalas AS enteredAmountHalalas,
+        invoice_no AS invoiceNo,po_no AS poNo,record_type AS recordType,paid_by AS paidBy,
+        entered_amount_halalas AS enteredAmountHalalas,
         net_amount_halalas AS netAmountHalalas,vat_removed_halalas AS vatRemovedHalalas,
         description,active,created_at AS createdAt,updated_at AS updatedAt
         FROM invoice_po_records ORDER BY record_date DESC,created_at DESC`),
@@ -342,9 +343,12 @@ async function costControlDetails() {
       active: bool(row.active), createdAt: String(row.createdAt), updatedAt: String(row.updatedAt),
     })) as FuelRecord[],
     invoicePoRecords: invoiceRows.map((row) => ({
-      id: String(row.id), date: String(row.date), vatStatus: String(row.vatStatus),
+      id: String(row.id),
+      recordType: row.recordType === 'PO' || (row.recordType == null && row.poNo != null) ? 'PO' : 'INVOICE',
+      date: String(row.date), vatStatus: String(row.vatStatus),
       invoiceNo: row.invoiceNo == null ? null : String(row.invoiceNo),
       poNo: row.poNo == null ? null : String(row.poNo),
+      paidBy: String(row.paidBy || ''),
       enteredAmountHalalas: Number(row.enteredAmountHalalas), netAmountHalalas: Number(row.netAmountHalalas),
       vatRemovedHalalas: Number(row.vatRemovedHalalas), description: String(row.description || ''),
       active: bool(row.active), createdAt: String(row.createdAt), updatedAt: String(row.updatedAt),
@@ -809,8 +813,10 @@ export async function mutate(path: string, req: Request, user: Actor) {
       : [
           z.object({
             ...baseSave,
+            recordType: z.enum(['INVOICE', 'PO']),
             invoiceNo: z.string().trim().max(100).default(''),
             poNo: z.string().trim().max(100).default(''),
+            paidBy: z.string().trim().min(1).max(150),
           }),
           z.object({ action: z.literal('archive'), id: z.string() }),
         ]).parse(body);
@@ -848,22 +854,27 @@ export async function mutate(path: string, req: Request, user: Actor) {
         auditStatement(user, data.id ? 'FUEL_UPDATED' : 'FUEL_CREATED', 'FuelRecord', savedId, before, { ...fuel, ...amounts }),
       ]);
     } else {
-      const invoice = data as typeof data & { invoiceNo: string; poNo: string };
-      requireThat(invoice.invoiceNo || invoice.poNo, 'Enter an Invoice No., PO No., or both.');
+      const invoice = data as typeof data & {
+        recordType: 'INVOICE' | 'PO'; invoiceNo: string; poNo: string; paidBy: string;
+      };
+      requireThat(invoice.invoiceNo, 'Enter an Invoice No.');
+      requireThat(invoice.recordType === 'INVOICE' || invoice.poNo, 'Enter a PO No.');
+      const poNo = invoice.recordType === 'PO' ? invoice.poNo : null;
+      const auditPrefix = invoice.recordType === 'PO' ? 'PO' : 'INVOICE';
       await database().batch([
         data.id
-          ? statement(`UPDATE invoice_po_records SET record_date=?,vat_status=?,invoice_no=?,po_no=?,
+          ? statement(`UPDATE invoice_po_records SET record_date=?,vat_status=?,record_type=?,invoice_no=?,po_no=?,paid_by=?,
               entered_amount_halalas=?,net_amount_halalas=?,vat_removed_halalas=?,description=?,active=1,updated_at=? WHERE id=?`,
-              data.date, data.vatStatus, invoice.invoiceNo || null, invoice.poNo || null,
+              data.date, data.vatStatus, invoice.recordType, invoice.invoiceNo, poNo, invoice.paidBy,
               amounts.enteredAmountHalalas, amounts.netAmountHalalas, amounts.vatRemovedHalalas,
               data.description, timestamp, savedId)
-          : statement(`INSERT INTO invoice_po_records (id,record_date,vat_status,invoice_no,po_no,
+          : statement(`INSERT INTO invoice_po_records (id,record_date,vat_status,record_type,invoice_no,po_no,paid_by,
               entered_amount_halalas,net_amount_halalas,vat_removed_halalas,description,active,created_by,created_at,updated_at)
-              VALUES (?,?,?,?,?,?,?,?,?,1,?,?,?)`, savedId, data.date, data.vatStatus,
-              invoice.invoiceNo || null, invoice.poNo || null, amounts.enteredAmountHalalas,
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)`, savedId, data.date, data.vatStatus,
+              invoice.recordType, invoice.invoiceNo, poNo, invoice.paidBy, amounts.enteredAmountHalalas,
               amounts.netAmountHalalas, amounts.vatRemovedHalalas, data.description,
               user.id, timestamp, timestamp),
-        auditStatement(user, data.id ? 'INVOICE_PO_UPDATED' : 'INVOICE_PO_CREATED', 'InvoicePoRecord', savedId, before, { ...invoice, ...amounts }),
+        auditStatement(user, `${auditPrefix}_${data.id ? 'UPDATED' : 'CREATED'}`, `${invoice.recordType === 'PO' ? 'PurchaseOrder' : 'Invoice'}Record`, savedId, before, { ...invoice, poNo, ...amounts }),
       ]);
     }
     return { id: savedId };

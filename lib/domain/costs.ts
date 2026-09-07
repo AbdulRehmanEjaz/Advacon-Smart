@@ -4,6 +4,8 @@ import { monthlyCost } from './attendance';
 export const VAT_RATE_PERCENT = 15;
 export const VAT_STATUSES = ['NON_VAT', 'VAT_INCLUDED'] as const;
 export type VatStatus = (typeof VAT_STATUSES)[number];
+export const COST_DOCUMENT_TYPES = ['INVOICE', 'PO'] as const;
+export type CostDocumentType = (typeof COST_DOCUMENT_TYPES)[number];
 
 export type FuelRecord = {
   id: string;
@@ -22,10 +24,12 @@ export type FuelRecord = {
 
 export type InvoicePoRecord = {
   id: string;
+  recordType: CostDocumentType;
   date: string;
   vatStatus: VatStatus;
   invoiceNo: string | null;
   poNo: string | null;
+  paidBy: string;
   enteredAmountHalalas: number;
   netAmountHalalas: number;
   vatRemovedHalalas: number;
@@ -86,12 +90,15 @@ export function costSummary(input: {
   const manpower = attendanceCostForMonth(input.manpower, input.manpowerAttendance, input.month);
   const equipment = attendanceCostForMonth(input.equipment, input.equipmentAttendance, input.month);
   const fuel = input.fuelRecords.filter((record) => record.active && record.date.startsWith(input.month));
-  const invoices = input.invoicePoRecords.filter((record) => record.active && record.date.startsWith(input.month));
+  const documents = input.invoicePoRecords.filter((record) => record.active && record.date.startsWith(input.month));
+  const invoices = documents.filter((record) => record.recordType === 'INVOICE');
+  const purchaseOrders = documents.filter((record) => record.recordType === 'PO');
   const manpowerHalalas = manpower.reduce((sum, row) => sum + row.totalHalalas, 0);
   const equipmentHalalas = equipment.reduce((sum, row) => sum + row.totalHalalas, 0);
   const fuelHalalas = fuel.reduce((sum, row) => sum + row.netAmountHalalas, 0);
   const invoiceHalalas = invoices.reduce((sum, row) => sum + row.netAmountHalalas, 0);
-  const vatRemovedHalalas = [...fuel, ...invoices].reduce(
+  const poHalalas = purchaseOrders.reduce((sum, row) => sum + row.netAmountHalalas, 0);
+  const vatRemovedHalalas = [...fuel, ...documents].reduce(
     (sum, row) => sum + row.vatRemovedHalalas,
     0,
   );
@@ -100,11 +107,13 @@ export function costSummary(input: {
     equipment,
     fuel,
     invoices,
+    purchaseOrders,
     manpowerHalalas,
     equipmentHalalas,
     fuelHalalas,
     invoiceHalalas,
+    poHalalas,
     vatRemovedHalalas,
-    totalHalalas: manpowerHalalas + equipmentHalalas + fuelHalalas + invoiceHalalas,
+    totalHalalas: manpowerHalalas + equipmentHalalas + fuelHalalas + invoiceHalalas + poHalalas,
   };
 }

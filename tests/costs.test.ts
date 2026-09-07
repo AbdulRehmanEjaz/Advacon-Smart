@@ -29,14 +29,17 @@ void test('project cost uses attendance and net financial records for the select
       { id: 'f2', date: '2026-09-02', fuelType: 'PETROL', quantityMillilitres: 5_000, vatStatus: 'VAT_INCLUDED', enteredAmountHalalas: 11_500, netAmountHalalas: 10_000, vatRemovedHalalas: 1_500, description: '', active: true, createdAt: '', updatedAt: '' },
     ],
     invoicePoRecords: [
-      { id: 'i1', date: '2026-09-03', vatStatus: 'NON_VAT', invoiceNo: 'INV-1', poNo: null, enteredAmountHalalas: 1_000_000, netAmountHalalas: 1_000_000, vatRemovedHalalas: 0, description: '', active: true, createdAt: '', updatedAt: '' },
-      { id: 'i2', date: '2026-09-04', vatStatus: 'VAT_INCLUDED', invoiceNo: null, poNo: 'PO-1', enteredAmountHalalas: 1_150_000, netAmountHalalas: 1_000_000, vatRemovedHalalas: 150_000, description: '', active: true, createdAt: '', updatedAt: '' },
+      { id: 'i1', recordType: 'INVOICE', date: '2026-09-03', vatStatus: 'NON_VAT', invoiceNo: 'INV-1', poNo: null, paidBy: 'Project', enteredAmountHalalas: 1_000_000, netAmountHalalas: 1_000_000, vatRemovedHalalas: 0, description: '', active: true, createdAt: '', updatedAt: '' },
+      { id: 'i2', recordType: 'PO', date: '2026-09-04', vatStatus: 'VAT_INCLUDED', invoiceNo: 'INV-2', poNo: 'PO-1', paidBy: 'Project', enteredAmountHalalas: 1_150_000, netAmountHalalas: 1_000_000, vatRemovedHalalas: 150_000, description: '', active: true, createdAt: '', updatedAt: '' },
     ],
   });
   assert.equal(summary.manpowerHalalas, 13_000);
   assert.equal(summary.equipmentHalalas, 85_000);
   assert.equal(summary.fuelHalalas, 20_000);
-  assert.equal(summary.invoiceHalalas, 2_000_000);
+  assert.equal(summary.invoiceHalalas, 1_000_000);
+  assert.equal(summary.poHalalas, 1_000_000);
+  assert.equal(summary.invoices.length, 1);
+  assert.equal(summary.purchaseOrders.length, 1);
   assert.equal(summary.vatRemovedHalalas, 151_500);
   assert.equal(summary.totalHalalas, 2_118_000);
 });

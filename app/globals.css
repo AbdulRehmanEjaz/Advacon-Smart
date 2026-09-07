@@ -1603,12 +1603,13 @@ td small {
 .cost-hero h2 { margin: 5px 0 6px; color: #12251a; font-size: 21px; }
 .cost-hero p, .cost-chart p, .cost-section p { color: #849087; font-size: 10px; }
 .cost-hero .field { width: 210px; flex-shrink: 0; }
-.cost-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 11px; }
+.cost-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 11px; }
 .cost-kpi { min-height: 122px; display: grid; align-content: space-between; gap: 7px; padding: 15px; border: 1px solid #e4eae6; border-radius: 16px; background: #fff; }
 .cost-kpi.featured { grid-column: span 2; color: #fff; border-color: transparent; background: linear-gradient(135deg, #075c38, #11905b); }
 .cost-kpi > svg { width: 18px; height: 18px; color: #3d8d61; }
 .cost-kpi span { color: #728077; font-size: 10px; font-weight: 600; }
-.cost-kpi strong { color: #163521; font-size: 20px; font-weight: 680; }
+.cost-kpi strong { min-width: 0; color: #163521; font-size: clamp(28px, 2.2vw, 34px); font-weight: 700; line-height: 1.05; letter-spacing: -0.035em; }
+.cost-kpi strong .riyal-money { white-space: nowrap; }
 .cost-kpi small { color: #929d96; font-size: 8px; }
 .cost-kpi.featured span, .cost-kpi.featured strong { color: #fff; }
 .cost-kpi.featured small { color: #cce8d7; }
@@ -1633,6 +1634,10 @@ td small {
 .cost-records article strong { color: #263a2d; font-size: 10px; }
 .cost-records article small { color: #87938b; font-size: 8px; overflow-wrap: anywhere; }
 .cost-record-amount { min-width: 130px; display: grid; justify-items: end; gap: 4px; color: #087443; font-size: 11px; font-weight: 650; }
+.cost-document-grid { align-items: start; }
+.cost-document-section { min-width: 0; }
+.cost-document-subtotal { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid #e5ebe7; color: #607168; font-size: 13px; }
+.cost-document-subtotal strong { color: #087443; font-size: 16px; }
 .fuel-mini-chart { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-bottom: 12px; }
 .fuel-mini-chart > div { display: grid; gap: 4px; padding: 11px; border-radius: 11px; background: #f2f8f4; }
 .fuel-mini-chart span, .fuel-mini-chart .riyal-money { color: #718078; font-size: 9px; }
@@ -2455,7 +2460,7 @@ td small,
 }
 
 .cost-kpi strong {
-  font-size: 1.375rem;
+  font-size: clamp(1.75rem, 2.2vw, 2.125rem);
 }
 
 .cost-record-amount,

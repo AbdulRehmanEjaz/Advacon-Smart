@@ -30,7 +30,14 @@ await test('cost control uses live resource data, explicit VAT messaging and off
   ]);
   assert.match(source, /costSummary\(\{ month,/);
   assert.match(source, /Total Recorded Project Cost — Non-VAT/);
-  assert.match(source, /VAT-included amount/);
+  assert.match(source, /Gross Amount/);
+  assert.match(source, /Invoices Net/);
+  assert.match(source, /POs Net/);
+  assert.match(source, /kind="INVOICE"/);
+  assert.match(source, /kind="PO"/);
+  assert.match(source, /Paid By/);
+  assert.doesNotMatch(source, />Invoices & POs</);
+  assert.match(css, /\.cost-kpi strong[^}]*font-size:\s*clamp\(28px, 2\.2vw, 34px\)/);
   assert.match(source, /Equipment Cost Analysis/);
   assert.match(css, /\/saudi-riyal-symbol\.svg/);
   assert.doesNotMatch(source, /manual manpower/i);
