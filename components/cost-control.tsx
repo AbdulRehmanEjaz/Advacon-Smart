@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useId, type ReactNode } from 'react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { ChevronDown, Droplets, FileCheck2, FileText, Fuel, Pencil, Plus, ReceiptText, Trash2, UsersRound, Wrench } from 'lucide-react';
+import { ArrowUpRight, ChevronDown, Droplets, FileCheck2, FileText, Fuel, Pencil, Plus, ReceiptText, Trash2, UsersRound, Wrench } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Modal } from './progress-form';
 import { costSummary, parseScaledDecimal, inclusiveCost, type CostDocumentType, type FuelRecord, type InvoicePoRecord, type VatStatus } from '@/lib/domain/costs';
@@ -159,7 +159,7 @@ export function CostControlPage({ state, refresh, preview, management = false }:
   </div>;
 }
 
-export function CostKpiCards({ state, dashboard = false, selection = 'all' }: { state: State; dashboard?: boolean; selection?: 'all' | 'total' | 'categories' }) {
+export function CostKpiCards({ state, dashboard = false, selection = 'all', href }: { state: State; dashboard?: boolean; selection?: 'all' | 'total' | 'categories'; href?: string }) {
   if (!state.fuelRecords || !state.invoicePoRecords || !state.manpower) return <output className="card">Loading project costs…</output>;
   const summary = costSummary({ throughDate: riyadhDate(), manpower: state.manpower, equipment: state.equipment || [], manpowerAttendance: state.manpowerAttendance || [], equipmentAttendance: state.equipmentAttendance || [], fuelRecords: state.fuelRecords, invoicePoRecords: state.invoicePoRecords });
   const cards = [
@@ -173,6 +173,7 @@ export function CostKpiCards({ state, dashboard = false, selection = 'all' }: { 
   return <div className={`cost-kpis ${dashboard ? 'dashboard-cost-kpis' : ''} ${selection === 'total' ? 'cost-total-only' : ''}`}>
     {cards.filter((_, index) => selection === 'all' || (selection === 'total' ? index === 0 : index > 0)).map(({ label, value, Icon }) => <article key={label} className={`cost-kpi ${value === summary.total ? 'featured' : ''}`}>
       <Icon /><span>{label}</span><small>Total Including VAT</small>
+      {href && value === summary.total && <a className="round-arrow" href={href} aria-label="Open Cost Control"><ArrowUpRight /></a>}
       <strong><Money value={value.grossHalalas} /></strong>
       <small>VAT Amount (15%): <Money value={value.vatHalalas} /></small>
       <small>Amount Without VAT: <Money value={value.netHalalas} /></small>
@@ -215,5 +216,5 @@ export function CostComposition({ state, compact = false }: { state: State; comp
     { name: 'POs', value: summary.costs.pos.grossHalalas, fill: COLORS[4] },
   ];
 
-  return (<section className={`card cost-chart ${compact ? 'dashboard-composition' : ''}`}><div className="card-heading"><div><h3>Cost Composition</h3><p>Project-to-date · VAT-inclusive amounts</p></div></div><div className={compact ? 'composition-side-by-side' : undefined}><ResponsiveContainer width="100%" height={compact ? 130 : 250}><PieChart><Pie data={composition} dataKey="value" nameKey="name" innerRadius={compact ? '55%' : 62} outerRadius={compact ? '85%' : 92} paddingAngle={3} /><Tooltip content={<CostTooltip />} /></PieChart></ResponsiveContainer><div className="cost-legend">{composition.map((item, index) => <span key={item.name}><i style={{ background: COLORS[index] }} />{item.name} {!compact && <b><Money value={item.value} /></b>}</span>)}</div></div></section>);
+  return (<section className={`card cost-chart ${compact ? 'dashboard-composition' : ''}`}><div className="card-heading"><div><h3>Cost Composition</h3><p>Project-to-date · VAT-inclusive amounts</p></div></div><div className={compact ? 'composition-stacked' : undefined}><ResponsiveContainer width="100%" height={compact ? 160 : 250}><PieChart><Pie data={composition} dataKey="value" nameKey="name" innerRadius={compact ? '55%' : 62} outerRadius={compact ? '90%' : 92} paddingAngle={3} /><Tooltip content={<CostTooltip />} /></PieChart></ResponsiveContainer><div className="cost-legend">{composition.map((item, index) => <span key={item.name}><i style={{ background: COLORS[index] }} />{item.name} {!compact && <b><Money value={item.value} /></b>}</span>)}</div></div></section>);
 }

@@ -77,10 +77,11 @@ export function Kpi({
     </article>
   );
 }
-function ProgressGauge({ value }: { value: number }) {
+function ProgressGauge({ value, href }: { value: number; href: string }) {
   return (
     <article className="card gauge-card gauge-compact progress-summary">
       <h2 className="card-title">Overall Project Progress</h2>
+      <a className="round-arrow" href={href} aria-label="Open Approved KPI Progress"><ArrowUpRight /></a>
       <div className="gauge-wrap">
         <svg viewBox="0 0 240 142" aria-label={`${progressLabel(value)} physical progress`}>
           <defs>
@@ -282,8 +283,8 @@ function AdminDashboard({
           href={href('kpi-progress')}
           arrowLabel="Open Approved KPI Progress"
         />
-        <ProgressGauge value={calculated.overall} />
-        <CostKpiCards state={state} dashboard selection="total" />
+        <ProgressGauge value={calculated.overall} href={href('kpi-progress')} />
+        <CostKpiCards state={state} dashboard selection="total" href={href('cost-control')} />
         <CostComposition state={state} compact />
       </div>
       <div className="dashboard-primary-grid">
