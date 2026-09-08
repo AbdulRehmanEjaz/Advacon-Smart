@@ -2540,11 +2540,11 @@ td small,
 .dashboard-summary-row .round-arrow:focus-visible { outline: 2px solid #78a98c; outline-offset: 3px; }
 .dashboard-summary-row .kpi-head, .dashboard-summary-row .progress-summary .card-title, .dashboard-summary-row .cost-kpi > span { padding-right: 34px; min-height: 26px; }
 .dashboard-summary-row .kpi-value { margin: 8px 0 4px; }
-.dashboard-summary-row .cost-kpi { align-content: center; gap: 3px; }
+.dashboard-summary-row .cost-kpi { align-content: start; gap: 3px; }
 .dashboard-summary-row .cost-kpi > svg { display: none; }
 .dashboard-summary-row .cost-kpi > span { line-height: 1.35; }
 .dashboard-summary-row .cost-kpi > small { line-height: 1.4; }
-.dashboard-summary-row .progress-summary { display: flex; flex-direction: column; justify-content: center; }
+.dashboard-summary-row .progress-summary { display: flex; flex-direction: column; justify-content: flex-start; }
 .dashboard-summary-row .gauge-wrap { width: 100%; max-width: 230px; margin: 6px auto 0; }
 .dashboard-summary-row .gauge-number { position: absolute; bottom: 10%; margin: 0; }
 .dashboard-summary-row .gauge-number strong { font-size: clamp(24px, 2vw, 28px); line-height: 1.15; }
