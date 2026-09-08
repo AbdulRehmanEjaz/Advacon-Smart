@@ -1,6 +1,6 @@
 'use client';
 import { useMemo, useState } from 'react';
-import { CostKpiCards } from './cost-control';
+import { CostKpiCards, CostComposition } from './cost-control';
 import {
   ArrowUpRight,
   ArrowRight,
@@ -77,7 +77,7 @@ export function Kpi({
     </article>
   );
 }
-function ProgressGauge({ value, remaining }: { value: number; remaining: number }) {
+function ProgressGauge({ value }: { value: number }) {
   return (
     <article className="card gauge-card gauge-compact progress-summary">
       <h2 className="card-title">Overall Project Progress</h2>
@@ -94,7 +94,6 @@ function ProgressGauge({ value, remaining }: { value: number; remaining: number 
         </svg>
         <div className="gauge-number"><strong>{progressLabel(value)}</strong><small>Physical Progress</small></div>
       </div>
-      <small className="gauge-remaining">Remaining: {progressLabel(remaining)}</small>
     </article>
   );
 }
@@ -274,20 +273,22 @@ function AdminDashboard({
   }, [state, range, settings]);
   return (
     <>
-      <div className="kpi-grid dashboard-kpi-grid">
+      <div className="kpi-grid dashboard-kpi-grid dashboard-summary-row">
         <Kpi
           title="Overall Project Progress"
           value={progressLabel(calculated.overall)}
-          footer="Actual physical completion"
+          footer={`Remaining Progress: ${progressLabel(calculated.remaining)}`}
           featured
           href={href('kpi-progress')}
           arrowLabel="Open Approved KPI Progress"
         />
-        <ProgressGauge value={calculated.overall} remaining={calculated.remaining} />
+        <ProgressGauge value={calculated.overall} />
+        <CostKpiCards state={state} dashboard selection="total" />
+        <CostComposition state={state} compact />
       </div>
       <div className="dashboard-primary-grid">
         <div className="dashboard-primary-main">
-          <section className="dashboard-costs"><CostKpiCards state={state} dashboard /></section>
+          <section className="dashboard-costs"><CostKpiCards state={state} dashboard selection="categories" /></section>
           <article className="card analytics">
           <div className="card-heading">
             <div>

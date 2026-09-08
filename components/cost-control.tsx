@@ -128,13 +128,6 @@ export function CostControlPage({ state, refresh, preview, management = false }:
         value: costSummary({ month: key, throughDate, ...input }).totalHalalas };
     });
   }, [input, throughDate]);
-  const composition = [
-    { name: 'Manpower', value: summary.costs.manpower.grossHalalas, fill: COLORS[0] },
-    { name: 'Equipment', value: summary.costs.equipment.grossHalalas, fill: COLORS[1] },
-    { name: 'Fuel', value: summary.costs.fuel.grossHalalas, fill: COLORS[2] },
-    { name: 'Invoices', value: summary.costs.invoices.grossHalalas, fill: COLORS[3] },
-    { name: 'POs', value: summary.costs.pos.grossHalalas, fill: COLORS[4] },
-  ];
   const fuelAnalysis = ['PETROL', 'DIESEL'].map((type) => ({ name: type === 'PETROL' ? 'Petrol' : 'Diesel', litres: summary.fuel.filter((item) => item.fuelType === type).reduce((sum, item) => sum + item.quantityMillilitres, 0) / 1000, value: summary.fuel.filter((item) => item.fuelType === type).reduce((sum, item) => sum + inclusiveCost(item.enteredAmountHalalas, item.vatStatus).grossHalalas, 0) }));
   async function archive(path: 'fuel' | 'invoice-po', id: string) {
     if (!window.confirm('Archive this cost record? Historical audit data will be preserved.')) return;
@@ -157,7 +150,7 @@ export function CostControlPage({ state, refresh, preview, management = false }:
     {error && <div className="notice" role="alert">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
     <CostKpiCards state={state} />
     <div className="cost-chart-grid">
-      <section className="card cost-chart"><div className="card-heading"><div><h3>Cost Composition</h3><p>Project-to-date · VAT-inclusive amounts</p></div></div><ResponsiveContainer width="100%" height={250}><PieChart><Pie data={composition} dataKey="value" nameKey="name" innerRadius={62} outerRadius={92} paddingAngle={3} /><Tooltip content={<CostTooltip />} /></PieChart></ResponsiveContainer><div className="cost-legend">{composition.map((item, index) => <span key={item.name}><i style={{ background: COLORS[index] }} />{item.name} <b><Money value={item.value} /></b></span>)}</div></section>
+      <CostComposition state={state} />
       <section className="card cost-chart wide"><div className="card-heading"><div><h3>Monthly Cost Trend</h3><p>Monthly history from the first project record</p></div></div><ResponsiveContainer width="100%" height={250}><AreaChart data={trend}><defs><linearGradient id="costFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#087443" stopOpacity={0.28} /><stop offset="1" stopColor="#087443" stopOpacity={0.02} /></linearGradient></defs><CartesianGrid vertical={false} stroke="#edf1ee" /><XAxis dataKey="month" axisLine={false} tickLine={false} /><YAxis hide /><Tooltip content={<CostTooltip />} /><Area type="monotone" dataKey="value" name="Project cost" stroke="#087443" strokeWidth={3} fill="url(#costFill)" /></AreaChart></ResponsiveContainer></section>
     </div>
     <section className="card cost-section"><div className="card-heading"><div><h3>Equipment Cost Analysis</h3><p>Live equipment attendance and configured daily rates</p></div><strong><Money value={summary.costs.equipment.grossHalalas} /></strong></div>{!summary.equipment.length ? <p className="cost-empty">No equipment records are available.</p> : <><ResponsiveContainer width="100%" height={220}><BarChart data={summary.equipment.map((row) => ({ name: row.resource.name, company: row.resource.company, value: inclusiveCost(row.totalHalalas, 'NON_VAT').grossHalalas }))}><CartesianGrid vertical={false} stroke="#edf1ee" /><XAxis dataKey="name" axisLine={false} tickLine={false} /><YAxis hide /><Tooltip content={<CostTooltip />} /><Bar dataKey="value" fill="#2f9b67" radius={[8, 8, 0, 0]} /></BarChart></ResponsiveContainer><div className="table-scroll"><table className="responsive-table"><thead><tr><th>Equipment</th><th>Rental Company</th><th>Project-to-date Total</th></tr></thead><tbody>{summary.equipment.map((row) => <tr key={row.resource.id}><td data-label="Equipment"><strong>{row.resource.name}</strong></td><td data-label="Rental Company">{row.resource.company}</td><td data-label="Project-to-date Total"><Money value={inclusiveCost(row.totalHalalas, 'NON_VAT').grossHalalas} /></td></tr>)}</tbody><tfoot><tr><th colSpan={2}>Equipment Total</th><th><Money value={summary.costs.equipment.grossHalalas} /></th></tr></tfoot></table></div></>}</section>
@@ -166,7 +159,7 @@ export function CostControlPage({ state, refresh, preview, management = false }:
   </div>;
 }
 
-export function CostKpiCards({ state, dashboard = false }: { state: State; dashboard?: boolean }) {
+export function CostKpiCards({ state, dashboard = false, selection = 'all' }: { state: State; dashboard?: boolean; selection?: 'all' | 'total' | 'categories' }) {
   if (!state.fuelRecords || !state.invoicePoRecords || !state.manpower) return <output className="card">Loading project costs…</output>;
   const summary = costSummary({ throughDate: riyadhDate(), manpower: state.manpower, equipment: state.equipment || [], manpowerAttendance: state.manpowerAttendance || [], equipmentAttendance: state.equipmentAttendance || [], fuelRecords: state.fuelRecords, invoicePoRecords: state.invoicePoRecords });
   const cards = [
@@ -177,8 +170,8 @@ export function CostKpiCards({ state, dashboard = false }: { state: State; dashb
     { label: 'Invoices Total', value: summary.costs.invoices, Icon: ReceiptText },
     { label: 'POs Total', value: summary.costs.pos, Icon: FileCheck2 },
   ];
-  return <div className={`cost-kpis ${dashboard ? 'dashboard-cost-kpis' : ''}`}>
-    {cards.map(({ label, value, Icon }, index) => <article key={label} className={`cost-kpi ${index === 0 ? 'featured' : ''}`}>
+  return <div className={`cost-kpis ${dashboard ? 'dashboard-cost-kpis' : ''} ${selection === 'total' ? 'cost-total-only' : ''}`}>
+    {cards.filter((_, index) => selection === 'all' || (selection === 'total' ? index === 0 : index > 0)).map(({ label, value, Icon }) => <article key={label} className={`cost-kpi ${value === summary.total ? 'featured' : ''}`}>
       <Icon /><span>{label}</span><small>Total Including VAT</small>
       <strong><Money value={value.grossHalalas} /></strong>
       <small>VAT Amount (15%): <Money value={value.vatHalalas} /></small>
@@ -210,4 +203,17 @@ function FinanceSection({ title, count, subtotal, addButton, summary, children }
     <div className="cost-document-subtotal"><span>{title} subtotal · Including VAT</span><strong><Money value={subtotal} /></strong></div>
     <div id={panelId} hidden={!expanded}>{children}</div>
   </section>;
+}
+export function CostComposition({ state, compact = false }: { state: State; compact?: boolean }) {
+  if (!state.fuelRecords || !state.invoicePoRecords || !state.manpower) return <output className="card">Loading cost composition…</output>;
+  const summary = costSummary({ throughDate: riyadhDate(), manpower: state.manpower, equipment: state.equipment || [], manpowerAttendance: state.manpowerAttendance || [], equipmentAttendance: state.equipmentAttendance || [], fuelRecords: state.fuelRecords, invoicePoRecords: state.invoicePoRecords });
+  const composition = [
+    { name: 'Manpower', value: summary.costs.manpower.grossHalalas, fill: COLORS[0] },
+    { name: 'Equipment', value: summary.costs.equipment.grossHalalas, fill: COLORS[1] },
+    { name: 'Fuel', value: summary.costs.fuel.grossHalalas, fill: COLORS[2] },
+    { name: 'Invoices', value: summary.costs.invoices.grossHalalas, fill: COLORS[3] },
+    { name: 'POs', value: summary.costs.pos.grossHalalas, fill: COLORS[4] },
+  ];
+
+  return (<section className={`card cost-chart ${compact ? 'dashboard-composition' : ''}`}><div className="card-heading"><div><h3>Cost Composition</h3><p>Project-to-date · VAT-inclusive amounts</p></div></div><ResponsiveContainer width="100%" height={compact ? 170 : 250}><PieChart><Pie data={composition} dataKey="value" nameKey="name" innerRadius={compact ? 48 : 62} outerRadius={compact ? 70 : 92} paddingAngle={3} /><Tooltip content={<CostTooltip />} /></PieChart></ResponsiveContainer><div className="cost-legend">{composition.map((item, index) => <span key={item.name}><i style={{ background: COLORS[index] }} />{item.name} {!compact && <b><Money value={item.value} /></b>}</span>)}</div></section>);
 }

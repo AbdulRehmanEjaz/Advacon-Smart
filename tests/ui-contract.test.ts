@@ -99,7 +99,8 @@ await test('dashboard compacts top KPIs and keeps the live approval indicator on
   const dashboard = await readFile(new URL('../components/dashboard.tsx', import.meta.url), 'utf8');
   const workspace = await readFile(new URL('../components/workspace.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(dashboard, /title="Remaining Progress"/);
-  assert.match(dashboard, /<ProgressGauge value=\{calculated.overall\} remaining=\{calculated.remaining\}/);
+  assert.match(dashboard, /<ProgressGauge value=\{calculated.overall\}/);
+  assert.match(dashboard, /Remaining Progress: \$\{progressLabel\(calculated.remaining\)\}/);
   assert.doesNotMatch(dashboard, /title="Pending Approval"/);
   assert.equal(dashboard.match(/Work Packages/g)?.length, 1);
   assert.match(dashboard, /<PackageProgressGauge value=\{p\.progress\} \/>/);
