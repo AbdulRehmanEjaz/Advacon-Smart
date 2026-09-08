@@ -77,9 +77,9 @@ export function Kpi({
     </article>
   );
 }
-function ProgressGauge({ value }: { value: number }) {
+function ProgressGauge({ value, remaining }: { value: number; remaining: number }) {
   return (
-    <article className="card gauge-card gauge-compact">
+    <article className="card gauge-card gauge-compact progress-summary">
       <h2 className="card-title">Overall Project Progress</h2>
       <div className="gauge-wrap">
         <svg viewBox="0 0 240 142" aria-label={`${progressLabel(value)} physical progress`}>
@@ -94,6 +94,7 @@ function ProgressGauge({ value }: { value: number }) {
         </svg>
         <div className="gauge-number"><strong>{progressLabel(value)}</strong><small>Physical Progress</small></div>
       </div>
+      <small className="gauge-remaining">Remaining: {progressLabel(remaining)}</small>
     </article>
   );
 }
@@ -282,14 +283,7 @@ function AdminDashboard({
           href={href('kpi-progress')}
           arrowLabel="Open Approved KPI Progress"
         />
-        <Kpi
-          title="Remaining Progress"
-          value={progressLabel(calculated.remaining)}
-          footer="Until physical completion"
-          href={href('kpi-progress')}
-          arrowLabel="Open Approved KPI Progress"
-        />
-        <ProgressGauge value={calculated.overall} />
+        <ProgressGauge value={calculated.overall} remaining={calculated.remaining} />
       </div>
       <div className="dashboard-primary-grid">
         <div className="dashboard-primary-main">

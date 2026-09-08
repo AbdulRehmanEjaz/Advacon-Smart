@@ -98,7 +98,8 @@ await test('dashboard uses a balanced package and activity grid without artifici
 await test('dashboard compacts top KPIs and keeps the live approval indicator on approvals only', async () => {
   const dashboard = await readFile(new URL('../components/dashboard.tsx', import.meta.url), 'utf8');
   const workspace = await readFile(new URL('../components/workspace.tsx', import.meta.url), 'utf8');
-  assert.match(dashboard, /title="Remaining Progress"[\s\S]*?href=\{href\('kpi-progress'\)\}[\s\S]*?arrowLabel="Open Approved KPI Progress"/);
+  assert.doesNotMatch(dashboard, /title="Remaining Progress"/);
+  assert.match(dashboard, /<ProgressGauge value=\{calculated.overall\} remaining=\{calculated.remaining\}/);
   assert.doesNotMatch(dashboard, /title="Pending Approval"/);
   assert.equal(dashboard.match(/Work Packages/g)?.length, 1);
   assert.match(dashboard, /<PackageProgressGauge value=\{p\.progress\} \/>/);

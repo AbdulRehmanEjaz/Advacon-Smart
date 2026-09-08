@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useId, type ReactNode } from 'react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Droplets, FileCheck2, FileText, Fuel, Pencil, Plus, ReceiptText, Trash2, UsersRound, Wrench } from 'lucide-react';
+import { ChevronDown, Droplets, FileCheck2, FileText, Fuel, Pencil, Plus, ReceiptText, Trash2, UsersRound, Wrench } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Modal } from './progress-form';
 import { costSummary, parseScaledDecimal, inclusiveCost, type CostDocumentType, type FuelRecord, type InvoicePoRecord, type VatStatus } from '@/lib/domain/costs';
@@ -97,15 +97,13 @@ function CostDocumentEditor({ kind, item, onClose, onSaved }: { kind: CostDocume
 
 function DocumentSection({ kind, items, subtotal, preview, onAdd, onEdit, onArchive }: { kind: CostDocumentType; items: InvoicePoRecord[]; subtotal: number; preview: boolean; onAdd: () => void; onEdit: (item: InvoicePoRecord) => void; onArchive: (id: string) => void }) {
   const plural = kind === 'PO' ? 'POs' : 'Invoices';
-  return <section className="card cost-section cost-document-section">
-    <div className="card-heading"><div><h3>{plural}</h3><p>Separate {plural.toLowerCase()} register · VAT-inclusive project cost</p></div><Button className="primary" disabled={preview} onClick={onAdd}><Plus size={14} /> Add {kind === 'PO' ? 'PO' : 'Invoice'}</Button></div>
+  return <FinanceSection title={plural} count={items.length} subtotal={subtotal} addButton={<Button className="primary" disabled={preview} onClick={onAdd}><Plus size={14} /> Add {kind === 'PO' ? 'PO' : 'Invoice'}</Button>}>
     {!items.length ? <p className="cost-empty">No {plural.toLowerCase()} recorded through today.</p> : <div className="cost-records">{items.map((item) => <article key={item.id}>
       <div><strong>Invoice {item.invoiceNo || 'Legacy record'}{kind === 'PO' && ` · PO ${item.poNo || 'Legacy record'}`}</strong><small>{item.date} · {item.vatStatus === 'VAT_INCLUDED' ? 'VAT Included' : 'Non-VAT'}{item.paidBy ? ` · Paid by ${item.paidBy}` : ''}{item.description ? ` · ${item.description}` : ''}</small></div>
       <RecordCost item={item} />
       <div className="inline-actions"><button className="text-button" onClick={() => onEdit(item)}><Pencil size={12} /> Edit</button><button className="text-button danger" onClick={() => onArchive(item.id)}><Trash2 size={12} /> Archive</button></div>
     </article>)}</div>}
-    <div className="cost-document-subtotal"><span>{plural} subtotal</span><strong><Money value={subtotal} /></strong></div>
-  </section>;
+  </FinanceSection>;
 }
 
 export function CostControlPage({ state, refresh, preview, management = false }: { state: State; refresh: () => Promise<void>; preview: boolean; management?: boolean }) {
@@ -145,7 +143,7 @@ export function CostControlPage({ state, refresh, preview, management = false }:
   }
   if (management) return <div className="cost-page">
     {error && <div className="notice" role="alert">{error}</div>}
-    <section className="card cost-section"><div className="card-heading"><div><h3>Fuel</h3><p>Petrol and Diesel · clear VAT treatment</p></div><Button className="primary" disabled={preview} onClick={() => setFuelEditor('new')}><Plus size={14} /> Add Fuel</Button></div><div className="fuel-mini-chart">{fuelAnalysis.map((item) => <div key={item.name}><span>{item.name}</span><strong>{item.litres.toLocaleString()} L</strong><Money value={item.value} /></div>)}</div>{!summary.fuel.length ? <p className="cost-empty">No fuel costs recorded through today.</p> : <div className="cost-records">{summary.fuel.map((item) => <article key={item.id}><div><strong>{item.fuelType === 'PETROL' ? 'Petrol' : 'Diesel'} · {(item.quantityMillilitres / 1000).toLocaleString()} L</strong><small>{item.date} · {item.vatStatus === 'VAT_INCLUDED' ? 'VAT Included' : 'Non-VAT'}</small></div><RecordCost item={item} /><div className="inline-actions"><button className="text-button" onClick={() => setFuelEditor(item)}><Pencil size={12} /> Edit</button><button className="text-button danger" onClick={() => void archive('fuel', item.id)}><Trash2 size={12} /> Archive</button></div></article>)}</div>}</section>
+    <FinanceSection title="Fuel" count={summary.fuel.length} subtotal={summary.costs.fuel.grossHalalas} addButton={<Button className="primary" disabled={preview} onClick={() => setFuelEditor('new')}><Plus size={14} /> Add Fuel</Button>} summary={<div className="fuel-mini-chart">{fuelAnalysis.map((item) => <div key={item.name}><span>{item.name}</span><strong>{item.litres.toLocaleString()} L</strong><Money value={item.value} /></div>)}</div>}>{!summary.fuel.length ? <p className="cost-empty">No fuel costs recorded through today.</p> : <div className="cost-records">{summary.fuel.map((item) => <article key={item.id}><div><strong>{item.fuelType === 'PETROL' ? 'Petrol' : 'Diesel'} · {(item.quantityMillilitres / 1000).toLocaleString()} L</strong><small>{item.date} · {item.vatStatus === 'VAT_INCLUDED' ? 'VAT Included' : 'Non-VAT'}</small></div><RecordCost item={item} /><div className="inline-actions"><button className="text-button" onClick={() => setFuelEditor(item)}><Pencil size={12} /> Edit</button><button className="text-button danger" onClick={() => void archive('fuel', item.id)}><Trash2 size={12} /> Archive</button></div></article>)}</div>}</FinanceSection>
     <div className="two-columns cost-document-grid">
       <DocumentSection kind="INVOICE" items={summary.invoices} subtotal={summary.costs.invoices.grossHalalas} preview={preview} onAdd={() => setInvoiceEditor('new')} onEdit={setInvoiceEditor} onArchive={(id) => void archive('invoice-po', id)} />
       <DocumentSection kind="PO" items={summary.purchaseOrders} subtotal={summary.costs.pos.grossHalalas} preview={preview} onAdd={() => setPoEditor('new')} onEdit={setPoEditor} onArchive={(id) => void archive('invoice-po', id)} />
@@ -195,4 +193,21 @@ function RecordCost({ item }: { item: FuelRecord | InvoicePoRecord }) {
     <small>VAT Amount (15%): <Money value={value.vatHalalas} /></small>
     <small>Amount Without VAT: <Money value={value.netHalalas} /></small>
   </div>;
+}
+function FinanceSection({ title, count, subtotal, addButton, summary, children }: {
+  title: string; count: number; subtotal: number; addButton: ReactNode; summary?: ReactNode; children: ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const panelId = useId();
+  return <section className="card cost-section finance-accordion">
+    <div className="card-heading">
+      <h3><button type="button" className="finance-toggle" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded(!expanded)}>
+        <ChevronDown size={18} className={expanded ? 'expanded' : ''} />{title}<span className="badge">{count}</span>
+      </button></h3>
+      {addButton}
+    </div>
+    {summary}
+    <div className="cost-document-subtotal"><span>{title} subtotal · Including VAT</span><strong><Money value={subtotal} /></strong></div>
+    <div id={panelId} hidden={!expanded}>{children}</div>
+  </section>;
 }
