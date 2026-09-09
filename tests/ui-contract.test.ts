@@ -2,6 +2,33 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
+await test('login remains PIN-only and slideshow uses the three supplied local photographs', async () => {
+  const login = await readFile(new URL('../components/login.tsx', import.meta.url), 'utf8');
+  const slideshow = await readFile(new URL('../components/login-slideshow.tsx', import.meta.url), 'utf8');
+  assert.match(login, /<form onSubmit=\{submit\}/);
+  assert.match(login, /JSON.stringify\(\{ pin \}\)/);
+  assert.match(login, /type="submit"/);
+  assert.doesNotMatch(login, /name="(?:email|username)"/);
+  assert.match(slideshow, /prefers-reduced-motion/);
+  assert.match(slideshow, /clearInterval/);
+  for (const filename of ['harry.jpg', 'big-deer.jpg', 'deer-cover.jpg']) {
+    assert.ok(slideshow.includes(`/images/login/${filename}`));
+    const image = await readFile(new URL(`../public/images/login/${filename}`, import.meta.url));
+    assert.equal(image[0], 0xff);
+    assert.equal(image[1], 0xd8);
+  }
+});
+
+await test('sidebar starts collapsed with accessible links and keeps expanded group behavior', async () => {
+  const source = await readFile(new URL('../components/workspace.tsx', import.meta.url), 'utf8');
+  assert.match(source, /\[collapsed, setCollapsed\] = useState\(true\)/);
+  assert.match(source, /aria-expanded=\{!collapsed\}/);
+  assert.match(source, /hidden=\{!collapsed && !expanded\}/);
+  assert.equal((source.match(/title=\{label\}/g) || []).length, 3);
+  assert.equal((source.match(/aria-label=\{label\}/g) || []).length, 3);
+  assert.match(source, /isAdmin \|\| id === 'daily'/);
+});
+
 await test('sidebar contract includes attendance and resource management modules', async () => {
   const source = await readFile(new URL('../components/workspace.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /\['quality',\s*'Quality'/);

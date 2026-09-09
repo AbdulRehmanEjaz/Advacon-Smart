@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
-import { TreePine, ArrowRight, ShieldCheck, LoaderCircle } from 'lucide-react';
+import { TreePine, ArrowRight, LoaderCircle } from 'lucide-react';
+import { LoginSlideshow } from './login-slideshow';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Workspace } from './workspace';
@@ -41,20 +42,14 @@ export function Login() {
   }
   if (workspace) return <Workspace view="dashboard" initialState={workspace} />;
   return (
-    <main className="login-page">
-      <div className="login-orbit orbit-one" />
-      <div className="login-orbit orbit-two" />
+    <main className="login-page login-split">
+      <div className="login-shell">
       <section className="login-card">
         <div className="brand-mark">
           <TreePine size={30} />
         </div>
-        <span className="eyebrow">TREE TRANSLOCATION PROJECT</span>
-        <h1>Project Control</h1>
-        <p>
-          One clear view of every tree,
-          <br />
-          every block, and every milestone.
-        </p>
+        <h1>Tree Control</h1>
+        <p>Sign in to your project workspace.</p>
         <form onSubmit={submit}>
           <label htmlFor="pin">Enter your access PIN</label>
           <Input
@@ -86,18 +81,14 @@ export function Login() {
               <LoaderCircle className="spin" />
             ) : (
               <>
-                Continue <ArrowRight size={17} />
+                Login <ArrowRight size={17} />
               </>
             )}
           </Button>
         </form>
-        <div className="auth-note">
-          <ShieldCheck size={14} /> Authorized access only
-        </div>
       </section>
-      <footer className="login-footer">
-        Rooted in precision. Growing with purpose.
-      </footer>
+      <LoginSlideshow />
+      </div>
     </main>
   );
 }

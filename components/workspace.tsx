@@ -107,6 +107,7 @@ export function Workspace({
     [activeView, setActiveView] = useState(view),
     [error, setError] = useState(''),
     [open, setOpen] = useState(false),
+    [collapsed, setCollapsed] = useState(true),
     [adding, setAdding] = useState(false),
     [query, setQuery] = useState(''),
     [detailLoading, setDetailLoading] = useState(false),
@@ -310,12 +311,13 @@ export function Workspace({
   const href = (v: string) =>
     preview ? `/design-preview?view=${v}` : `/workspace/${v}`;
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <aside className={`sidebar ${open ? 'open' : ''}`}>
-        <a href={href('dashboard')} className="brand">
+        <button type="button" className="brand sidebar-toggle" onClick={() => setCollapsed(!collapsed)}
+          aria-expanded={!collapsed} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
           <TreePine size={28} />
           <span>TREE CONTROL</span>
-        </a>
+        </button>
         <nav aria-label="Project navigation">
           <p className="nav-label">PROJECT</p>
           {topNavigation.map(([id, label, Icon]) => (
@@ -324,6 +326,8 @@ export function Workspace({
               aria-current={activeView === id ? 'page' : undefined}
               key={id}
               href={href(id)}
+              title={label}
+              aria-label={label}
             >
               <Icon />
               <span>{label}</span>
@@ -360,7 +364,7 @@ export function Workspace({
                 <div
                   className="nav-group-items"
                   id={controlId}
-                  hidden={!expanded}
+                  hidden={!collapsed && !expanded}
                 >
                   {items.map(([id, label, Icon]) => (
                     <a
@@ -368,6 +372,8 @@ export function Workspace({
                       aria-current={activeView === id ? 'page' : undefined}
                       key={id}
                       href={href(id)}
+                      title={label}
+                      aria-label={label}
                     >
                       <Icon />
                       <span>{label}</span>
@@ -390,6 +396,8 @@ export function Workspace({
                 aria-current={activeView === id ? 'page' : undefined}
                 key={id}
                 href={href(id)}
+                title={label}
+                aria-label={label}
               >
                 <Icon />
                 <span>{label}</span>
@@ -400,6 +408,8 @@ export function Workspace({
         <p className="nav-label">GENERAL</p>
         <button
           className="nav-link"
+          aria-label="Logout"
+          title="Logout"
           disabled={preview}
           onClick={async () => {
             try {
