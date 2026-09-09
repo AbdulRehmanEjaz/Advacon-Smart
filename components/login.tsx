@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
-import { TreePine, ArrowRight, LoaderCircle } from 'lucide-react';
+import Image from 'next/image';
+import { ArrowRight, LoaderCircle } from 'lucide-react';
 import { LoginSlideshow } from './login-slideshow';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,10 +45,9 @@ export function Login() {
   return (
     <main className="login-page login-split">
       <div className="login-shell">
+      <div className="login-panel">
       <section className="login-card">
-        <div className="brand-mark">
-          <TreePine size={30} />
-        </div>
+        <Image className="login-project-logo" src="/images/advacon-logo.png" alt="ADVACON Contracting" width={853} height={292} unoptimized priority />
         <h1>Tree Translocation Project</h1>
         <p>Sign in to your project workspace.</p>
         <form onSubmit={submit}>
@@ -87,6 +87,8 @@ export function Login() {
           </Button>
         </form>
       </section>
+      <footer className="login-company-footer">©Advanced Concepts Contracting Co. Ltd.</footer>
+      </div>
       <LoginSlideshow />
       </div>
     </main>
