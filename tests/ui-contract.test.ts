@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-await test('login remains PIN-only and slideshow uses the three supplied local photographs', async () => {
+await test('login remains PIN-only and slideshow uses all five supplied local photographs', async () => {
   const login = await readFile(new URL('../components/login.tsx', import.meta.url), 'utf8');
   const slideshow = await readFile(new URL('../components/login-slideshow.tsx', import.meta.url), 'utf8');
   assert.match(login, /<form onSubmit=\{submit\}/);
@@ -11,7 +11,10 @@ await test('login remains PIN-only and slideshow uses the three supplied local p
   assert.doesNotMatch(login, /name="(?:email|username)"/);
   assert.match(slideshow, /prefers-reduced-motion/);
   assert.match(slideshow, /clearInterval/);
-  for (const filename of ['harry.jpg', 'big-deer.jpg', 'deer-cover.jpg']) {
+  assert.match(login, /<h1>Tree Translocation Project<\/h1>/);
+  assert.match(slideshow, /, 3000\)/);
+  assert.doesNotMatch(slideshow, /login-slide-pause|setPaused/);
+  for (const filename of ['harry.jpg', 'big-deer.jpg', 'deer-cover.jpg', 'canyon-tree.jpg', 'desert-landscape.jpg']) {
     assert.ok(slideshow.includes(`/images/login/${filename}`));
     const image = await readFile(new URL(`../public/images/login/${filename}`, import.meta.url));
     assert.equal(image[0], 0xff);

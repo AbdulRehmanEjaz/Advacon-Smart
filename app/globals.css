@@ -2562,23 +2562,22 @@ td small,
 @media (max-width: 600px) { .kpi-value, .cost-kpi > strong { font-size: 33px; } }
 
 /* PIN-only split-screen sign-in. */
-.login-split { padding: 24px; background: #f3f5f4; }
-.login-shell { width: 100%; max-width: 1600px; min-height: min(800px, calc(100dvh - 48px)); display: grid; grid-template-columns: minmax(300px, 38fr) minmax(0, 62fr); padding: 12px; background: #fff; border-radius: 28px; box-shadow: 0 16px 60px #163c2110; }
-.login-split .login-card { align-self: center; justify-self: center; max-width: 410px; padding: 36px; text-align: left; border: 0; box-shadow: none; }
+.login-split { --login-inset: clamp(8px, 1.2vw, 18px); padding: var(--login-inset); background: #f3f5f4; }
+.login-shell { width: 100%; min-height: calc(100dvh - 2 * var(--login-inset)); display: grid; grid-template-columns: minmax(320px, 32fr) minmax(0, 68fr); background: #fff; border-radius: 24px; overflow: hidden; box-shadow: 0 8px 32px #163c210a; }
+.login-split .login-card { align-self: center; justify-self: center; max-width: 440px; padding: clamp(28px, 3.5vw, 56px); text-align: left; border: 0; border-radius: 0; box-shadow: none; }
 .login-split .brand-mark { margin: 0 0 28px; }
-.login-split .login-card h1 { font-size: clamp(28px, 3vw, 38px); }
+.login-split .login-card h1 { font-size: clamp(28px, 2.5vw, 38px); line-height: 1.15; text-wrap: balance; }
 .login-split .login-card p { font-size: 16px; }
 .login-split .login-card label { font-size: 14px; }
 .login-split .login-submit { height: 48px; font-size: 16px; }
-.login-slideshow { position: relative; min-width: 0; min-height: 480px; border-radius: 20px; overflow: hidden; background: #244c37; }
+.login-slideshow { position: relative; min-width: 0; min-height: 100%; overflow: hidden; background: #244c37; }
 .login-slideshow > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; opacity: 0; transition: opacity 800ms ease; }
 .login-slideshow > img.active { opacity: 1; }
-.login-slide-controls { position: absolute; bottom: 20px; left: 20px; right: 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.login-slide-dots { display: flex; border-radius: 999px; background: #10291c80; padding: 0 4px; }
+.login-slide-controls { position: absolute; bottom: 24px; left: 20px; right: 20px; display: flex; align-items: center; justify-content: center; }
+.login-slide-dots { display: flex; }
 .login-slide-dots button { width: 44px; height: 44px; display: grid; place-items: center; background: none; border: 0; }
 .login-slide-dots span { width: 7px; height: 7px; background: #ffffff80; border-radius: 50%; }
 .login-slide-dots [aria-pressed="true"] span { background: #fff; width: 20px; border-radius: 8px; }
-.login-slide-pause { min-height: 44px; padding: 0 18px; border-radius: 999px; background: #10291c80; color: white; border: 1px solid #ffffff50; font-size: 14px; }
 .login-slide-controls button:focus-visible { outline: 2px solid white; outline-offset: 3px; }
 
 /* Collapse only presentation; retain every permitted workspace link. */
@@ -2598,17 +2597,16 @@ td small,
 .sidebar-collapsed .nav-link.active:before { left: -8px; }
 .sidebar-collapsed .sidebar > nav + nav { margin-top: 8px; }
 @media (max-width: 900px) {
-  .login-split { padding: 16px; }
-  .login-shell { grid-template-columns: minmax(280px, 44fr) minmax(0, 56fr); }
+  .login-shell { grid-template-columns: minmax(300px, 38fr) minmax(0, 62fr); }
   .login-split .login-card { padding: 24px; }
   .app-shell.sidebar-collapsed { grid-template-columns: minmax(0, 1fr); }
   .sidebar-collapsed .sidebar { width: 68px; }
 }
-@media (max-width: 600px) {
-  .login-split { padding: 12px; }
-  .login-shell { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 8px; min-height: auto; border-radius: 22px; }
-  .login-split .login-card { padding: 24px 20px; }
-  .login-slideshow { min-height: 260px; }
+@media (max-width: 760px), (max-aspect-ratio: 1/1) {
+  .login-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(280px, 1fr); }
+  .login-split .login-card { max-width: 460px; padding: 32px 24px; }
+  .login-split .brand-mark { margin-bottom: 18px; }
+  .login-slideshow { min-height: clamp(280px, 48vw, 560px); }
 }
 @media (prefers-reduced-motion: reduce) {
   .app-shell, .login-slideshow > img { transition: none; }

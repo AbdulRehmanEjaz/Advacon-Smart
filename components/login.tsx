@@ -48,7 +48,7 @@ export function Login() {
         <div className="brand-mark">
           <TreePine size={30} />
         </div>
-        <h1>Tree Control</h1>
+        <h1>Tree Translocation Project</h1>
         <p>Sign in to your project workspace.</p>
         <form onSubmit={submit}>
           <label htmlFor="pin">Enter your access PIN</label>
