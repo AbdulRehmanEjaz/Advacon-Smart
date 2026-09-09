@@ -9,7 +9,8 @@ await test('login remains PIN-only and slideshow uses all five supplied local ph
   assert.match(login, /JSON.stringify\(\{ pin \}\)/);
   assert.match(login, /type="submit"/);
   assert.doesNotMatch(login, /name="(?:email|username)"/);
-  assert.match(slideshow, /prefers-reduced-motion/);
+  assert.doesNotMatch(slideshow, /matchMedia|prefers-reduced-motion/);
+  assert.match(slideshow, /useState\(0\)/);
   assert.match(slideshow, /clearInterval/);
   assert.match(login, /<h1>Tree Translocation Project<\/h1>/);
   assert.match(slideshow, /, 3000\)/);

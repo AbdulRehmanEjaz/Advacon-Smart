@@ -14,7 +14,6 @@ const slides = [
 export function LoginSlideshow() {
   const [active, setActive] = useState(0);
   useEffect(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const timer = window.setInterval(() => setActive((current) => (current + 1) % slides.length), 3000);
     return () => window.clearInterval(timer);
   }, []);
