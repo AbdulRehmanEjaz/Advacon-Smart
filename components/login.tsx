@@ -47,8 +47,8 @@ export function Login() {
       <div className="login-shell">
       <div className="login-panel">
       <section className="login-card">
-        <Image className="login-project-logo" src="/images/advacon-logo.png" alt="ADVACON Contracting" width={853} height={292} unoptimized priority />
-        <h1>Tree Translocation Project</h1>
+        <Image className="login-project-logo" src="/images/advacon-logo.png" alt="ADVACON" width={784} height={196} unoptimized priority />
+        <h1>Tree Translocation Project - 336-A</h1>
         <p>Sign in to your project workspace.</p>
         <form onSubmit={submit}>
           <label htmlFor="pin">Enter your access PIN</label>

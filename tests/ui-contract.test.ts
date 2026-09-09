@@ -10,9 +10,9 @@ await test('login remains PIN-only and slideshow uses all five supplied local ph
   assert.match(login, /type="submit"/);
   assert.doesNotMatch(login, /name="(?:email|username)"/);
   assert.doesNotMatch(slideshow, /matchMedia|prefers-reduced-motion/);
-  assert.match(slideshow, /useState\(0\)/);
+  assert.match(slideshow, /active: 0, previous: null/);
   assert.match(slideshow, /clearInterval/);
-  assert.match(login, /<h1>Tree Translocation Project<\/h1>/);
+  assert.match(login, /<h1>Tree Translocation Project - 336-A<\/h1>/);
   assert.match(slideshow, /, 3000\)/);
   assert.doesNotMatch(slideshow, /login-slide-pause|setPaused/);
   for (const filename of ['harry.jpg', 'big-deer.jpg', 'deer-cover.jpg', 'canyon-tree.jpg', 'desert-landscape.jpg']) {

@@ -12,22 +12,22 @@ const slides = [
 ];
 
 export function LoginSlideshow() {
-  const [active, setActive] = useState(0);
+  const [{ active, previous }, setSlide] = useState<{ active: number; previous: number | null }>({ active: 0, previous: null });
   useEffect(() => {
-    const timer = window.setInterval(() => setActive((current) => (current + 1) % slides.length), 3000);
+    const timer = window.setInterval(() => setSlide((current) => ({ active: (current.active + 1) % slides.length, previous: current.active })), 3000);
     return () => window.clearInterval(timer);
   }, []);
   return (
     <section className="login-slideshow" aria-label="Project photographs" aria-roledescription="carousel">
       {slides.map((slide, index) => (
-        <Image key={slide.src} src={slide.src} alt={slide.alt} fill unoptimized sizes="(max-width: 760px) 100vw, 68vw" className={index === active ? 'active' : ''}
+        <Image key={slide.src} src={slide.src} alt={slide.alt} fill unoptimized sizes="(max-width: 760px) 100vw, 68vw" className={index === active ? `active ${previous !== null ? 'slide-enter' : ''}` : index === previous ? 'slide-exit' : ''}
           aria-hidden={index !== active} decoding="async" loading={index === 0 ? 'eager' : 'lazy'} />
       ))}
       <div className="login-slide-controls">
         <div className="login-slide-dots">
           {slides.map((slide, index) => (
             <button key={slide.src} type="button" aria-label={`Show photograph ${index + 1}: ${slide.alt}`}
-              aria-pressed={index === active} onClick={() => setActive(index)}><span /></button>
+              aria-pressed={index === active} onClick={() => setSlide((current) => index === current.active ? current : { active: index, previous: current.active })}><span /></button>
           ))}
         </div>
       </div>
