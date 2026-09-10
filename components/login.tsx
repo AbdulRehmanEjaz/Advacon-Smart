@@ -52,6 +52,7 @@ export function Login() {
         <p>Sign in to your project workspace.</p>
         <form onSubmit={submit}>
           <label htmlFor="pin">Enter your access PIN</label>
+          <div className="pin-control">
           <Input
             id="pin"
             name="pin"
@@ -64,9 +65,16 @@ export function Login() {
             required
             value={pin}
             onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-            placeholder="···"
-            aria-describedby={error ? 'login-error' : undefined}
+            aria-describedby={error ? 'pin-hint login-error' : 'pin-hint'}
+            aria-invalid={error ? true : undefined}
           />
+          <div className="pin-indicators" aria-hidden="true">
+            {[0, 1, 2].map((position) => (
+              <span key={position} className="pin-indicator" data-filled={position < pin.length} />
+            ))}
+          </div>
+          </div>
+          <span id="pin-hint" className="sr-only">Enter your three-digit PIN.</span>
           {error && (
             <p id="login-error" className="error" role="alert">
               {error}

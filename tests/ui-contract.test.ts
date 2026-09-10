@@ -7,6 +7,14 @@ await test('login remains PIN-only and slideshow keeps two originals plus nine n
   const slideshow = await readFile(new URL('../components/login-slideshow.tsx', import.meta.url), 'utf8');
   assert.match(login, /<form onSubmit=\{submit\}/);
   assert.match(login, /JSON.stringify\(\{ pin \}\)/);
+  assert.match(login, /\[0, 1, 2\]\.map/);
+  assert.match(login, /data-filled=\{position < pin.length\}/);
+  assert.match(login, /className="pin-indicators" aria-hidden="true"/);
+  assert.match(login, /maxLength=\{3\}/);
+  assert.match(login, /pattern="\[0-9\]\{3\}"/);
+  assert.match(login, /type="password"/);
+  assert.match(login, /inputMode="numeric"/);
+  assert.match(login, /disabled=\{busy \|\| pin.length !== 3\}/);
   assert.match(login, /type="submit"/);
   assert.doesNotMatch(login, /name="(?:email|username)"/);
   assert.doesNotMatch(slideshow, /matchMedia|prefers-reduced-motion/);

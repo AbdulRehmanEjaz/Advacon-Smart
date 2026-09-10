@@ -246,15 +246,46 @@ button:disabled {
   margin-bottom: 12px;
   font-weight: 500;
 }
-.pin-input {
+.pin-control {
+  position: relative;
+}
+.pin-control .pin-input {
   height: 64px;
   width: 100%;
   border-radius: 12px;
-  font-size: 27px;
-  letter-spacing: 20px;
-  padding-left: 34px;
-  text-align: center;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: transparent;
   background: #fafcfb;
+}
+.pin-indicators {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  pointer-events: none;
+}
+.pin-indicator {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #8b9f93;
+  border-radius: 50%;
+  background: #fff;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+.pin-indicator[data-filled="true"] {
+  background: #087443;
+  border-color: #087443;
+}
+.pin-control:focus-within .pin-indicator {
+  border-color: #087443;
+}
+@media (forced-colors: active) {
+  .pin-indicator { forced-color-adjust: none; background: Canvas; border-color: CanvasText; }
+  .pin-indicator[data-filled="true"] { background: Highlight; border-color: Highlight; }
+  .pin-control:focus-within .pin-indicator { border-color: Highlight; }
 }
 .login-submit {
   width: 100%;
