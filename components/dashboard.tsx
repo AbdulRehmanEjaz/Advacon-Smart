@@ -1,11 +1,9 @@
 'use client';
-import { useState } from 'react';
 import { ProgressComparisonCard } from './project-schedule';
 import { CostKpiCards, CostComposition } from './cost-control';
 import {
   ArrowUpRight,
   ArrowRight,
-  ClipboardCheck,
   Activity,
   Droplets,
   Fence,
@@ -203,15 +201,13 @@ function AdminDashboard({
   state: State;
   href: (v: string) => string;
 }) {
-  const [now] = useState(() => Date.now());
   const settings = state.settings!,
     calculated = calculateKpiProgress(
       state.packages,
       state.openingBalances,
       state.submissions,
       settings,
-    ),
-    pending = state.submissions.filter((s) => s.status === 'WAITING');
+    );
   const production = productivity(
     state.submissions,
     'kpi-translocation-placement',
@@ -233,10 +229,22 @@ function AdminDashboard({
         <CostKpiCards state={state} dashboard selection="total" href={href('cost-control')} />
         <CostComposition state={state} compact />
       </div>
+      <ProgressComparisonCard state={state} compact />
       <div className="dashboard-primary-grid">
         <div className="dashboard-primary-main">
           <section className="dashboard-costs"><CostKpiCards state={state} dashboard selection="categories" /></section>
-          <ProgressComparisonCard state={state} compact />
+          <article className="card productivity-card">
+            <h2 className="card-title">Today’s Productivity</h2>
+            <div className="productivity-number">{number(production.today)}</div>
+            <p>Trees / Day</p>
+            <p>
+              Target: {settings.productivityMin}–{settings.productivityMax}
+            </p>
+            <div className="productivity-footer">
+              <Activity size={14} />
+              7-Day Avg: {number(production.average)}/day
+            </div>
+          </article>
 
         </div>
         <div className="dashboard-primary-side">
@@ -279,57 +287,8 @@ function AdminDashboard({
                 </a>
               );
             })}
-          <div className="pending-widget">
-            <h3>Waiting for Approval</h3>
-            <strong>
-              {pending.length}{' '}
-              <span style={{ fontSize: 13, color: '#84958a' }}>
-                submissions
-              </span>
-            </strong>
-            {pending.length ? (
-              <>
-                <p>
-                  {pending.at(-1)!.supervisor.name} · {pending.at(-1)!.blockId || 'Project-wide'}
-                  <br />
-                  {new Date(pending.at(-1)!.createdAt).toLocaleString()}
-                </p>
-                {now - new Date(pending.at(-1)!.createdAt).getTime() >
-                  Number(settings.pendingHours) * 3600000 && (
-                  <Badge status="WAITING" />
-                )}
-              </>
-            ) : (
-              <p>All site submissions have been reviewed.</p>
-            )}
-            <a
-              href={href('approvals')}
-              className="primary"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-                fontSize: 11,
-              }}
-            >
-              <ClipboardCheck size={14} />
-              Review Approvals
-            </a>
-          </div>
           </article>
-          <article className="card productivity-card">
-            <h2 className="card-title">Today’s Productivity</h2>
-            <div className="productivity-number">{number(production.today)}</div>
-            <p>Trees / Day</p>
-            <p>
-              Target: {settings.productivityMin}–{settings.productivityMax}
-            </p>
-            <div className="productivity-footer">
-              <Activity size={14} />
-              7-Day Avg: {number(production.average)}/day
-            </div>
-          </article>
+
         </div>
       </div>
     </>

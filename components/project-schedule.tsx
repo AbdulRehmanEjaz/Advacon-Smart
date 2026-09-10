@@ -15,7 +15,7 @@ export function ProgressComparisonCard({ state, compact = false }: { state: Stat
   const today = riyadhDate();
   const comparison = useMemo(() => scheduleComparison(state, today), [state, today]);
   return <section className={`card ${styles.chartCard} ${compact ? styles.compact : ''}`} aria-label="Schedule progress comparison">
-      <div className="card-heading"><div><h2>Planned vs Current Progress</h2><p>Approved baseline · 15 Aug–30 Nov 2026</p></div><span className={`badge ${comparison.status === 'Behind plan' ? 'rejected' : 'approved'}`}>{comparison.status}</span></div>
+      <div className="card-heading"><div><h2>Planned vs Current Progress</h2>{!compact && <p>Approved baseline · 15 Aug–30 Nov 2026</p>}</div><span className={`badge ${comparison.status === 'Behind plan' ? 'rejected' : 'approved'}`}>{comparison.status}</span></div>
       <div className="kpi-grid">
         <div><small>Planned Progress · {dateLabel(today)}</small><h3>{percentage(comparison.planned)}</h3></div>
         <div><small>Current Progress · approved KPI</small><h3>{percentage(comparison.current)}</h3></div>
@@ -45,7 +45,7 @@ export function ProgressComparisonCard({ state, compact = false }: { state: Stat
           </AreaChart>
         </ResponsiveContainer>
       </div>
-      <p className="card-subtitle">Plan uses the existing KPI weights spread linearly across each main task window. Final testing and handover share the Final Completion weight across 26–30 Nov. Subtasks are not counted again. Current Progress uses approved KPI history, including opening balances and approved adjustments; no future actuals are projected. On plan means within 0.05 percentage points.</p>
+      {!compact && <p className="card-subtitle">Plan uses the existing KPI weights spread linearly across each main task window. Final testing and handover share the Final Completion weight across 26–30 Nov. Subtasks are not counted again. Current Progress uses approved KPI history, including opening balances and approved adjustments; no future actuals are projected. On plan means within 0.05 percentage points.</p>}
     </section>;
 }
 

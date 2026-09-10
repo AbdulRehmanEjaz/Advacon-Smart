@@ -139,11 +139,15 @@ await test('dashboard compacts top KPIs and keeps the live approval indicator on
   assert.equal(dashboard.match(/Work Packages/g)?.length, 1);
   assert.match(dashboard, /<PackageProgressGauge value=\{p\.progress\} \/>/);
   assert.match(dashboard, /<ProgressComparisonCard state=\{state\} compact \/>/);
+  assert.ok(dashboard.indexOf('<ProgressComparisonCard') < dashboard.indexOf('className="dashboard-primary-grid"'));
+  assert.doesNotMatch(dashboard, /pending-widget|Review Approvals|All site submissions have been reviewed/);
   assert.doesNotMatch(dashboard, /Project Analytics|7 Days|30 Days|setRange|plannedProgress/);
   const schedule = await readFile(new URL('../components/project-schedule.tsx', import.meta.url), 'utf8');
   assert.match(schedule, /<ProgressComparisonCard state=\{state\} \/>/);
   assert.equal(schedule.match(/scheduleComparison\(state, today\)/g)?.length, 1);
   assert.match(schedule, /ReferenceLine x=\{today\}/);
+  assert.match(schedule, /!compact && <p>Approved baseline/);
+  assert.match(schedule, /!compact && <p className="card-subtitle">Plan uses/);
   assert.match(dashboard, /p\.earned\.toFixed\(2\).*earned.*p\.weight.*weight.*\(\{p\.name\}\)/);
   assert.match(dashboard, /Math\.abs\(value - 100\).*\? '100' : value\.toFixed\(2\)/);
   assert.equal(workspace.match(/pending > 0 && <i className="dot"/g)?.length, 1);
