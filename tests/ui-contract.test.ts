@@ -159,6 +159,11 @@ await test('dashboard compacts top KPIs and keeps the live approval indicator on
   assert.match(dashboard, /p\.earned\.toFixed\(2\).*earned.*p\.weight.*weight.*\(\{p\.name\}\)/);
   assert.match(dashboard, /Math\.abs\(value - 100\).*\? '100' : value\.toFixed\(2\)/);
   assert.equal(workspace.match(/pending > 0 && <i className="dot"/g)?.length, 1);
+  assert.match(workspace, /activeView !== 'dashboard' && <header className="toolbar">/);
+  assert.match(workspace, /activeView === 'dashboard' && isAdmin && \(/);
+  assert.match(workspace, /className="secondary dashboard-approval-shortcut"\s+href=\{href\('approvals'\)\}/);
+  assert.match(workspace, /pending > 0 && <span className="dashboard-approval-count"/);
+  assert.match(workspace, /query && activeView !== 'dashboard'/);
 });
 
 await test('new progress form has no active batch or photo controls', async () => {

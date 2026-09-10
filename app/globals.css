@@ -246,6 +246,9 @@ button:disabled {
   margin-bottom: 12px;
   font-weight: 500;
 }
+.dashboard-approval-shortcut { position: relative; min-width: 42px; min-height: 40px; justify-content: center; }
+.dashboard-approval-count { min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; background: #087443; color: #fff; font-size: 11px; line-height: 1; font-weight: 600; }
+
 .pin-control {
   position: relative;
 }

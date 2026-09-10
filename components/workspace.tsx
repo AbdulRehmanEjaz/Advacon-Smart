@@ -439,7 +439,7 @@ export function Workspace({
         </div>
       </aside>
       <section className="workspace">
-        <header className="toolbar">
+        {activeView !== 'dashboard' && <header className="toolbar">
           <button
             className="icon-button mobile-toggle"
             aria-label={open ? 'Close navigation' : 'Open navigation'}
@@ -481,7 +481,7 @@ export function Workspace({
               </div>
             </div>
           </div>
-        </header>
+        </header>}
         <div className="content">
           <div className="page-heading">
             <div>
@@ -493,6 +493,11 @@ export function Workspace({
               </p>
             </div>
             <div className="heading-actions">
+              {activeView === 'dashboard' && <button
+                className="icon-button mobile-toggle"
+                aria-label={open ? 'Close navigation' : 'Open navigation'}
+                onClick={() => setOpen(!open)}
+              >{open ? <X /> : <Menu />}</button>}
               <Button
                 className="primary"
                 disabled={preview}
@@ -501,6 +506,15 @@ export function Workspace({
                 <Plus size={15} />
                 {isAdmin ? 'Add Progress' : 'Add Daily Progress'}
               </Button>
+              {activeView === 'dashboard' && isAdmin && (
+                <a className="secondary dashboard-approval-shortcut"
+                  href={href('approvals')}
+                  title="Waiting for Approval"
+                  aria-label={`Waiting for Approval${pending > 0 ? `: ${pending} pending submissions` : ''}`}>
+                  <ClipboardCheck size={16} aria-hidden="true" />
+                  {pending > 0 && <span className="dashboard-approval-count" aria-hidden="true">{pending}</span>}
+                </a>
+              )}
               {isAdmin && (
                 <a
                   href={preview ? '#' : '/api/report.pdf'}
@@ -540,7 +554,7 @@ export function Workspace({
             <div className="card empty-note">
               This page requires administrator access.
             </div>
-          ) : query ? (
+          ) : query && activeView !== 'dashboard' ? (
             <DataPages
               state={state}
               view="search"
