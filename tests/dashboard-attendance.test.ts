@@ -34,6 +34,9 @@ void test('attendance donut uses solid present and striped absent without the ex
   assert.match(source, /<i className=\{styles.striped\} aria-hidden="true" \/>Absent: <b>\{absent.toLocaleString\('en-US'\)\}<\/b>/);
   assert.doesNotMatch(source, /Project-to-date|Friday, holidays and unrecorded days excluded/);
   assert.match(source, /const today = riyadhDate\(\)/);
-  assert.match(source, /manpowerAttendanceSummary\(state, today, 'day'\)/);
-  assert.match(source, /manpowerAttendanceSummary\(state, today\)/);
+  assert.match(source, /manpowerAttendanceSummary\(state, selectedDate, 'day'\)/);
+  assert.match(source, /aria-label="Previous attendance day" onClick=\{\(\) => changeDate\(-1\)\}/);
+  assert.match(source, /aria-label="Next attendance day" onClick=\{\(\) => changeDate\(1\)\}/);
+  assert.match(source, /const \{ present, absent, percentage \} = manpowerAttendanceSummary\(state, selectedDate, 'day'\)/);
+  assert.doesNotMatch(source, /manpowerAttendanceSummary\(state, today\)|Cumulative manpower attendance/);
 });
