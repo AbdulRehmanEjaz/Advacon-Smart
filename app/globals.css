@@ -2577,6 +2577,15 @@ td small,
 .dashboard-summary-row .cost-kpi { align-content: start; gap: 3px; }
 .dashboard-summary-row .cost-kpi > svg { display: none; }
 .dashboard-summary-row .cost-kpi > span { line-height: 1.35; }
+.dashboard-summary-row .progress-summary .card-title,
+.dashboard-summary-row .cost-kpi.featured > span,
+.dashboard-summary-row .dashboard-composition h3 {
+  font-family: inherit;
+  font-size: var(--type-section-title);
+  font-weight: 550;
+  letter-spacing: -0.3px;
+  line-height: 1.3;
+}
 .dashboard-summary-row .cost-kpi > small { line-height: 1.4; }
 .dashboard-summary-row .progress-summary { display: flex; flex-direction: column; justify-content: flex-start; }
 .dashboard-summary-row .gauge-wrap { width: 100%; max-width: 260px; margin: auto auto 4px; }
