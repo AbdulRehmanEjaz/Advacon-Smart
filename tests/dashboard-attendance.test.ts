@@ -26,8 +26,8 @@ void test('six-card order is scoped to dashboard categories only', async () => {
 void test('attendance donut uses solid present and striped absent without the explanatory note', async () => {
   const source = await readFile(new URL('../components/manpower-attendance-card.tsx', import.meta.url), 'utf8');
   assert.match(source, /stroke="#087443"[^>]*strokeDasharray=\{`\$\{percentage\}/);
-  assert.match(source, /<i \/>Present \{present\}/);
-  assert.match(source, /<i className=\{styles.striped\} \/>Absent \{absent\}/);
+  assert.match(source, /<i aria-hidden="true" \/>Present: <b>\{present.toLocaleString\('en-US'\)\}<\/b>/);
+  assert.match(source, /<i className=\{styles.striped\} aria-hidden="true" \/>Absent: <b>\{absent.toLocaleString\('en-US'\)\}<\/b>/);
   assert.doesNotMatch(source, /Project-to-date|Friday, holidays and unrecorded days excluded/);
   assert.match(source, /manpowerAttendanceSummary\(state, riyadhDate\(\)\)/);
 });

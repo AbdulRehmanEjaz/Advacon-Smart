@@ -21,6 +21,9 @@ export function ManpowerAttendanceCard({ state }: { state: State }) {
         <text x="80" y="98" textAnchor="middle" className={styles.caption}>{percentage == null ? 'P / A not recorded' : 'Present'}</text>
       </svg>
     </div>
-    <div className={styles.legend}><span><i />Present {present}</span><span><i className={styles.striped} />Absent {absent}</span></div>
+    <div className={styles.legend}>
+      <span><i aria-hidden="true" />Present: <b>{present.toLocaleString('en-US')}</b></span>
+      <span><i className={styles.striped} aria-hidden="true" />Absent: <b>{absent.toLocaleString('en-US')}</b></span>
+    </div>
   </article>;
 }
