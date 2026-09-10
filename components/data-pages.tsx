@@ -18,6 +18,7 @@ import { Supervisors } from './supervisors';
 import { ApprovedKpiProgress } from './approved-kpi-progress';
 import { ResourcesPage, TimesheetPage } from './attendance';
 import { CostControlPage } from './cost-control';
+import { ProjectSchedule } from './project-schedule';
 import {
   calculateKpiProgress,
   productivity,
@@ -308,90 +309,7 @@ export function DataPages(props: Props) {
   } else if (view === 'supervisors')
     content = <Supervisors state={state} refresh={refresh} preview={preview} />;
   else if (view === 'schedule')
-    content = (
-      <section className="card">
-        <div className="notice info">
-          Planned progress uses a transparent linear schedule for each weighted
-          activity. The project planned percentage stays unavailable until all
-          weighted activities have dates.
-        </div>
-        {state.packages.map((p) => (
-          <div className="form-section" key={p.id}>
-            <h3>{p.name}</h3>
-            <table className="responsive-table">
-              <thead>
-                <tr>
-                  <th>Activity</th>
-                  <th>Start</th>
-                  <th>Finish</th>
-                  <th>Schedule</th>
-                </tr>
-              </thead>
-              <tbody>
-                {p.activities
-                  .filter((a) => Number(a.weight) > 0)
-                  .map((a) => (
-                    <tr key={a.id}>
-                      <td data-label="Activity">{a.name}</td>
-                      <td data-label="Start">
-                        {a.schedule?.start.slice(0, 10) || 'Not configured'}
-                      </td>
-                      <td data-label="Finish">
-                        {a.schedule?.finish.slice(0, 10) || '—'}
-                      </td>
-                      <td data-label="Schedule">
-                        <button
-                          className="text-button"
-                          disabled={preview}
-                          onClick={() =>
-                            setEdit({
-                              title: 'Set activity schedule',
-                              description: a.name,
-                              path: 'schedule',
-                              initial: {
-                                start: a.schedule?.start.slice(0, 10) || '',
-                                finish: a.schedule?.finish.slice(0, 10) || '',
-                                reason: '',
-                              },
-                              fields: [
-                                {
-                                  key: 'start',
-                                  label: 'Planned start',
-                                  type: 'date',
-                                  required: true,
-                                },
-                                {
-                                  key: 'finish',
-                                  label: 'Planned finish',
-                                  type: 'date',
-                                  required: true,
-                                },
-                                commentField,
-                              ],
-                              transform: (v) => ({
-                                activities: [
-                                  {
-                                    id: a.id,
-                                    start: v.start,
-                                    finish: v.finish,
-                                  },
-                                ],
-                                reason: v.reason,
-                              }),
-                            })
-                          }
-                        >
-                          Edit dates
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
-      </section>
-    );
+    content = <ProjectSchedule state={state} />;
   else if (view === 'settings') {
     content = (
       <section className="card">
