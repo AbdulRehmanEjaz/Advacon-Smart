@@ -25,7 +25,7 @@ export function ManpowerAttendanceCard({ state }: { state: State }) {
         <defs><pattern id={`${id}-stripes`} width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(25)"><rect width="5" height="5" fill="#e0f1e6" /><path d="M0 0V5" stroke="#4aa374" strokeWidth="2" /></pattern></defs>
         <circle cx="80" cy="80" r="58" fill="none" stroke={percentage == null ? '#e9eeeb' : `url(#${id}-stripes)`} strokeWidth="26" />
         {percentage != null && <circle cx="80" cy="80" r="58" fill="none" stroke="#087443" strokeWidth="26" pathLength="100" strokeDasharray={`${percentage} ${100 - percentage}`} transform="rotate(-90 80 80)" />}
-        <text x="80" y="80" textAnchor="middle" dominantBaseline="middle" className={styles.value}>{label}</text>
+        <text x="80" y="78" textAnchor="middle" dominantBaseline="middle" className={percentage == null ? `${styles.value} ${styles.emptyValue}` : styles.value}>{label}</text>
         <text x="80" y="98" textAnchor="middle" className={styles.caption}>{percentage == null ? 'P / A not recorded' : 'Present'}</text>
       </svg>
     </div>
