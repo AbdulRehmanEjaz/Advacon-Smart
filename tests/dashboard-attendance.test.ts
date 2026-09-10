@@ -22,3 +22,12 @@ void test('six-card order is scoped to dashboard categories only', async () => {
   assert.match(source, /\[cards\[1\], cards\[2\], cards\[4\], cards\[5\], cards\[3\]\]/);
   assert.ok(source.indexOf('<ManpowerAttendanceCard') < source.indexOf('{orderedCards.filter'));
 });
+
+void test('attendance donut uses solid present and striped absent without the explanatory note', async () => {
+  const source = await readFile(new URL('../components/manpower-attendance-card.tsx', import.meta.url), 'utf8');
+  assert.match(source, /stroke="#087443"[^>]*strokeDasharray=\{`\$\{percentage\}/);
+  assert.match(source, /<i \/>Present \{present\}/);
+  assert.match(source, /<i className=\{styles.striped\} \/>Absent \{absent\}/);
+  assert.doesNotMatch(source, /Project-to-date|Friday, holidays and unrecorded days excluded/);
+  assert.match(source, /manpowerAttendanceSummary\(state, riyadhDate\(\)\)/);
+});
