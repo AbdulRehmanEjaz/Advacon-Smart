@@ -30,6 +30,19 @@ void test('attendance moves to the dashboard summary without duplicating the cos
   assert.ok(dashboard.indexOf('<ManpowerAttendanceCard') < dashboard.indexOf('<ProgressComparisonCard'));
 });
 
+void test('dashboard summary keeps compact side-by-side charts and responsive equal-height cards', async () => {
+  const styles = await readFile(new URL('../app/globals.css', import.meta.url), 'utf8');
+  const attendanceStyles = await readFile(new URL('../components/manpower-attendance-card.module.css', import.meta.url), 'utf8');
+  const costs = await readFile(new URL('../components/cost-control.tsx', import.meta.url), 'utf8');
+  assert.match(styles, /\.dashboard-summary-row \{[^}]*grid-auto-rows: 1fr/);
+  assert.match(styles, /\.dashboard-summary-row > \.card[^}]*min-height: 280px/);
+  assert.match(styles, /\.composition-stacked \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto/);
+  assert.match(styles, /\.dashboard-composition \.cost-legend \{[^}]*flex-direction: column/);
+  assert.match(attendanceStyles, /\.legend \{ grid-column: 2; grid-row: 2/);
+  assert.match(attendanceStyles, /\.dateNavigation \{ grid-column: 1 \/ -1; grid-row: 3/);
+  assert.match(costs, /height=\{compact \? 200 : 250\}/);
+});
+
 void test('attendance donut uses solid present and striped absent without the explanatory note', async () => {
   const source = await readFile(new URL('../components/manpower-attendance-card.tsx', import.meta.url), 'utf8');
   assert.match(source, /stroke="#087443"[^>]*strokeDasharray=\{`\$\{percentage\}/);
