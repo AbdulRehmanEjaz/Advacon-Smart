@@ -11,6 +11,10 @@ void test('attendance card counts recorded P/A through today without treating ho
   const before = JSON.stringify(input);
   assert.deepEqual(manpowerAttendanceSummary(input, '2026-09-10'), { present: 3, absent: 1, percentage: 75 });
   assert.equal(JSON.stringify(input), before);
+  assert.deepEqual(manpowerAttendanceSummary(input, '2026-09-03', 'day'), { present: 1, absent: 0, percentage: 100 });
+  assert.deepEqual(manpowerAttendanceSummary(input, '2026-09-04', 'day'), { present: 0, absent: 1, percentage: 0 });
+  assert.deepEqual(manpowerAttendanceSummary(input, '2026-09-10', 'day'), { present: 0, absent: 0, percentage: null });
+  assert.deepEqual(manpowerAttendanceSummary(input, '2026-09-06', 'day'), { present: 0, absent: 0, percentage: null });
   assert.equal(manpowerAttendanceSummary({}, '2026-09-10').percentage, null);
   assert.equal(manpowerAttendanceSummary({ manpower: [person], manpowerAttendance: [records[3]] }, '2026-09-10').percentage, 0);
   assert.equal(manpowerAttendanceSummary({ manpower: [person], manpowerAttendance: [records[0]] }, '2026-09-10').percentage, 100);
@@ -29,5 +33,7 @@ void test('attendance donut uses solid present and striped absent without the ex
   assert.match(source, /<i aria-hidden="true" \/>Present: <b>\{present.toLocaleString\('en-US'\)\}<\/b>/);
   assert.match(source, /<i className=\{styles.striped\} aria-hidden="true" \/>Absent: <b>\{absent.toLocaleString\('en-US'\)\}<\/b>/);
   assert.doesNotMatch(source, /Project-to-date|Friday, holidays and unrecorded days excluded/);
-  assert.match(source, /manpowerAttendanceSummary\(state, riyadhDate\(\)\)/);
+  assert.match(source, /const today = riyadhDate\(\)/);
+  assert.match(source, /manpowerAttendanceSummary\(state, today, 'day'\)/);
+  assert.match(source, /manpowerAttendanceSummary\(state, today\)/);
 });
