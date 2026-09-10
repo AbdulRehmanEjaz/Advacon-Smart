@@ -2566,7 +2566,7 @@ td small,
 .login-shell { width: 100%; min-height: calc(100dvh - 2 * var(--login-inset)); display: grid; grid-template-columns: minmax(320px, 32fr) minmax(0, 68fr); background: #fff; border-radius: 24px; overflow: hidden; box-shadow: 0 8px 32px #163c210a; }
 .login-split .login-card { align-self: center; justify-self: center; max-width: 440px; padding: clamp(28px, 3.5vw, 56px); text-align: left; border: 0; border-radius: 0; box-shadow: none; }
 .login-panel { position: relative; isolation: isolate; overflow: hidden; min-width: 0; display: flex; flex-direction: column; }
-.login-panel::before { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: #e8ebe9; opacity: 0.09; mask: url('/images/advacon-watermark.png') calc(50% + 10px) 25% / 102% auto no-repeat; }
+.login-panel::before { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: #e8ebe9; opacity: 0.55; mask: url('/images/advacon-watermark.png') calc(50% + 10px) 25% / 102% auto no-repeat; }
 .login-panel > .login-card { background: transparent; }
 .login-project-logo { display: block; width: clamp(140px, 12vw, 180px); max-width: 100%; height: auto; object-fit: contain; margin-bottom: 8px; }
 .login-company-footer { padding: 16px 24px 12px; text-align: center; color: #7c827f; font-size: 12px; line-height: 1.5; }
@@ -2583,7 +2583,7 @@ td small,
 @keyframes login-slide-in { from { transform: translateX(-100%); } to { transform: translateX(0); } }
 @keyframes login-slide-out { from { transform: translateX(0); } to { transform: translateX(100%); } }
 .login-slide-controls { position: absolute; bottom: 24px; left: 20px; right: 20px; display: flex; align-items: center; justify-content: center; }
-.login-slide-dots { display: flex; }
+.login-slide-dots { display: flex; flex-wrap: wrap; justify-content: center; }
 .login-slide-dots button { width: 44px; height: 44px; display: grid; place-items: center; background: none; border: 0; }
 .login-slide-dots span { width: 7px; height: 7px; background: #ffffff80; border-radius: 50%; }
 .login-slide-dots [aria-pressed="true"] span { background: #fff; width: 20px; border-radius: 8px; }
