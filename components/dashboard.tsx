@@ -1,6 +1,7 @@
 'use client';
 import { ProgressComparisonCard } from './project-schedule';
 import { CostKpiCards, CostComposition } from './cost-control';
+import { ManpowerAttendanceCard } from './manpower-attendance-card';
 import {
   ArrowUpRight,
   ArrowRight,
@@ -66,7 +67,7 @@ export function Kpi({
     </article>
   );
 }
-function ProgressGauge({ value, href }: { value: number; href: string }) {
+function ProgressGauge({ value, remaining, href }: { value: number; remaining: number; href: string }) {
   return (
     <article className="card gauge-card gauge-compact progress-summary">
       <h2 className="card-title">Overall Project Progress</h2>
@@ -84,6 +85,7 @@ function ProgressGauge({ value, href }: { value: number; href: string }) {
         </svg>
         <div className="gauge-number"><strong>{progressLabel(value)}</strong><small>Physical Progress</small></div>
       </div>
+      <p className="gauge-remaining">Remaining Progress: <strong>{remaining.toFixed(2)}%</strong></p>
     </article>
   );
 }
@@ -217,15 +219,8 @@ function AdminDashboard({
   return (
     <>
       <div className="kpi-grid dashboard-kpi-grid dashboard-summary-row">
-        <Kpi
-          title="Overall Project Progress"
-          value={progressLabel(calculated.overall)}
-          footer={`Remaining Progress: ${progressLabel(calculated.remaining)}`}
-          featured
-          href={href('kpi-progress')}
-          arrowLabel="Open Approved KPI Progress"
-        />
-        <ProgressGauge value={calculated.overall} href={href('kpi-progress')} />
+        <ProgressGauge value={calculated.overall} remaining={calculated.remaining} href={href('kpi-progress')} />
+        <ManpowerAttendanceCard state={state} />
         <CostKpiCards state={state} dashboard selection="total" href={href('cost-control')} />
         <CostComposition state={state} compact />
       </div>

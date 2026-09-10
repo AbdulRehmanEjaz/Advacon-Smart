@@ -20,11 +20,14 @@ void test('attendance card counts recorded P/A through today without treating ho
   assert.equal(manpowerAttendanceSummary({ manpower: [person], manpowerAttendance: [records[0]] }, '2026-09-10').percentage, 100);
 });
 
-void test('six-card order is scoped to dashboard categories only', async () => {
+void test('attendance moves to the dashboard summary without duplicating the cost categories', async () => {
   const source = await readFile(new URL('../components/cost-control.tsx', import.meta.url), 'utf8');
   assert.match(source, /dashboard && selection === 'categories'/);
   assert.match(source, /\[cards\[1\], cards\[2\], cards\[4\], cards\[5\], cards\[3\]\]/);
-  assert.ok(source.indexOf('<ManpowerAttendanceCard') < source.indexOf('{orderedCards.filter'));
+  assert.doesNotMatch(source, /ManpowerAttendanceCard/);
+  const dashboard = await readFile(new URL('../components/dashboard.tsx', import.meta.url), 'utf8');
+  assert.equal(dashboard.match(/<ManpowerAttendanceCard/g)?.length, 1);
+  assert.ok(dashboard.indexOf('<ManpowerAttendanceCard') < dashboard.indexOf('<ProgressComparisonCard'));
 });
 
 void test('attendance donut uses solid present and striped absent without the explanatory note', async () => {

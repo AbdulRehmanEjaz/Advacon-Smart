@@ -8,7 +8,6 @@ import { Modal } from './progress-form';
 import { costSummary, parseScaledDecimal, inclusiveCost, documentCost, financialRecordCost, type CostDocumentType, type FuelRecord, type InvoicePoRecord, type VatStatus } from '@/lib/domain/costs';
 import { riyadhDate } from '@/lib/domain/date';
 import { post, type State } from '@/lib/types';
-import { ManpowerAttendanceCard } from './manpower-attendance-card';
 
 const COLORS = ['#087443', '#51a878', '#d2a84b', '#244e34', '#6aa982'];
 const money = (halalas: number) => (halalas / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -175,7 +174,6 @@ export function CostKpiCards({ state, dashboard = false, selection = 'all', href
   const dashboardCategories = dashboard && selection === 'categories';
   const orderedCards = dashboardCategories ? [cards[1], cards[2], cards[4], cards[5], cards[3]] : cards;
   return <div className={`cost-kpis ${dashboard ? 'dashboard-cost-kpis' : ''} ${selection === 'total' ? 'cost-total-only' : ''}`}>
-    {dashboardCategories && <ManpowerAttendanceCard state={state} />}
     {orderedCards.filter((_, index) => dashboardCategories || selection === 'all' || (selection === 'total' ? index === 0 : index > 0)).map(({ label, value, Icon }) => <article key={label} className={`cost-kpi ${value === summary.total ? 'featured' : ''}`}>
       <Icon /><span>{label}</span><small>Total Including VAT</small>
       {href && value === summary.total && <a className="round-arrow" href={href} aria-label="Open Cost Control"><ArrowUpRight /></a>}

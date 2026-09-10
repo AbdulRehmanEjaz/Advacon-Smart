@@ -1,6 +1,6 @@
-.card { gap: 6px; }
-:global(.dashboard-cost-kpis):has(> .card) { grid-auto-rows: 1fr; }
-.chart { width: 100%; max-width: 175px; margin: 0 auto; }
+.card { min-width: 0; gap: 6px; }
+:global(.dashboard-summary-row) > .card { gap: 6px; }
+.chart { width: 100%; max-width: 220px; margin: 0 auto; }
 .chart svg { display: block; width: 100%; height: auto; }
 .value { font-size: 20px; font-weight: 700; fill: #163521; }
 .emptyValue { font-size: 13px; }

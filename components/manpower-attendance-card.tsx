@@ -17,8 +17,8 @@ export function ManpowerAttendanceCard({ state }: { state: State }) {
   });
   const { present, absent, percentage } = manpowerAttendanceSummary(state, selectedDate, 'day');
   const label = percentage == null ? 'No records' : `${percentage.toFixed(1)}%`;
-  return <article className={`cost-kpi ${styles.card}`}>
-    <span>Manpower Attendance</span>
+  return <article className={`card cost-kpi ${styles.card}`}>
+    <h2 className="card-title">Manpower Attendance</h2>
     <div className={styles.chart}>
       <svg viewBox="0 0 160 160" aria-labelledby={`${id}-title`}>
         <title id={`${id}-title`}>{`Manpower attendance for ${selectedDate}: ${label}. ${present} present, ${absent} absent.`}</title>
