@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { approvedTotals, calculateKpiProgress } from '../lib/domain/calculations';
 import { baselineSql } from '../lib/server/d1-baseline';
 import { riyadhDate } from '../lib/domain/date';
+import { unzipSync, strFromU8 } from 'fflate';
 
 const root = fileURLToPath(new URL('../dist/server/', import.meta.url));
 const config = JSON.parse(
@@ -345,6 +346,18 @@ try {
   }, { recordType: 'PO', invoiceNo: 'INV-002', poNo: 'PO-001', paidBy: 'Procurement', netAmountHalalas: 1_000_000, vatRemovedHalalas: 150_000 });
   assert.equal(legacyPoRecord?.recordType, 'PO');
   assert.equal(legacyPoRecord?.netAmountHalalas, 25_000);
+  assert.equal((await fetcher(origin + '/api/finance.xlsx')).status, 401);
+  assert.equal((await fetcher(origin + '/api/finance.xlsx', { headers: { Cookie: supervisor.cookie } })).status, 403);
+  const financeExport = await fetcher(origin + '/api/finance.xlsx', { headers: { Cookie: admin.cookie } });
+  assert.equal(financeExport.status, 200);
+  assert.match(financeExport.headers.get('content-type') || '', /spreadsheetml/);
+  assert.match(financeExport.headers.get('content-disposition') || '', /attachment;.*\.xlsx/);
+  assert.equal(financeExport.headers.get('cache-control'), 'no-store');
+  const financeFiles = unzipSync(new Uint8Array(await financeExport.arrayBuffer()));
+  assert.match(strFromU8(financeFiles['xl/worksheets/sheet1.xml']), /Generator fuel/);
+  assert.match(strFromU8(financeFiles['xl/worksheets/sheet2.xml']), /PO-001/);
+  assert.match(strFromU8(financeFiles['xl/worksheets/sheet3.xml']), /INV-001/);
+  assert.match(strFromU8(financeFiles['xl/worksheets/sheet3.xml']), /r="I5" s="3"><v>10000<\/v>/);
 
   const timesheetExport = await fetcher(
     `${origin}/api/timesheet.xlsx?month=${riyadhDate().slice(0, 7)}`,

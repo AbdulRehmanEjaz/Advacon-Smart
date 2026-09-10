@@ -66,6 +66,16 @@ export function vatBreakdown(enteredAmountHalalas: number, vatStatus: VatStatus)
   };
 }
 
+// Documents are final entered amounts; unlike Fuel, Non-VAT never adds VAT.
+export function documentCost(enteredAmountHalalas: number, vatStatus: VatStatus) {
+  const value = vatBreakdown(enteredAmountHalalas, vatStatus);
+  return { netHalalas: value.netAmountHalalas, vatHalalas: value.vatRemovedHalalas, grossHalalas: value.enteredAmountHalalas };
+}
+
+export function financialRecordCost(record: FuelRecord | InvoicePoRecord) {
+  return ('recordType' in record ? documentCost : inclusiveCost)(record.enteredAmountHalalas, record.vatStatus);
+}
+
 export function parseScaledDecimal(value: string, scale: number) {
   const places = String(scale).length - 1;
   const parts = value.trim().split('.');
@@ -124,13 +134,12 @@ export function costSummary(input: {
     vatHalalas: safeMoney(costs.reduce((sum, cost) => sum + BigInt(cost.vatHalalas), BigInt(0))),
     grossHalalas: safeMoney(costs.reduce((sum, cost) => sum + BigInt(cost.grossHalalas), BigInt(0))),
   });
-  const recordCost = (row: FuelRecord | InvoicePoRecord) => inclusiveCost(row.enteredAmountHalalas, row.vatStatus);
   const costs = {
     manpower: combine(manpower.map((row) => inclusiveCost(row.totalHalalas, 'NON_VAT'))),
     equipment: combine(equipment.map((row) => inclusiveCost(row.totalHalalas, 'NON_VAT'))),
-    fuel: combine(fuel.map(recordCost)),
-    invoices: combine(invoices.map(recordCost)),
-    pos: combine(purchaseOrders.map(recordCost)),
+    fuel: combine(fuel.map(financialRecordCost)),
+    invoices: combine(invoices.map(financialRecordCost)),
+    pos: combine(purchaseOrders.map(financialRecordCost)),
   };
   const total = combine(Object.values(costs));
   return {

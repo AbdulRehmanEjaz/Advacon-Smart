@@ -9,7 +9,7 @@ import {
 } from '@/lib/server/auth';
 import { getState, getStateDetail, mutate } from '@/lib/server/service';
 import { buildProgressPdf } from '@/lib/server/pdf';
-import { buildMonthlyTimesheetXlsx } from '@/lib/server/xlsx';
+import { buildMonthlyTimesheetXlsx, buildFinanceXlsx } from '@/lib/server/xlsx';
 import { riyadhDate } from '@/lib/domain/date';
 import type { State } from '@/lib/types';
 export const dynamic = 'force-dynamic';
@@ -49,6 +49,18 @@ async function handler(req: Request) {
       return reply({ ok: true }, 200, { 'Set-Cookie': cookie('', 0) });
     }
     const user = await userFor(req);
+    if (path === 'finance.xlsx' && req.method === 'GET') {
+      admin(user);
+      const bytes = buildFinanceXlsx(await getStateDetail(user, 'cost-records') as unknown as State);
+      return new Response(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, {
+        headers: {
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'Content-Disposition': `attachment; filename="Tree_Translocation_Finance_${riyadhDate()}.xlsx"`,
+          'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff',
+        },
+      });
+    }
     if (path === 'report.pdf' && req.method === 'GET') {
       admin(user);
       const bytes = buildProgressPdf(await getState(user, 'reports'));

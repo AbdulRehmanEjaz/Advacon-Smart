@@ -5,7 +5,7 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, Pie, PieChart, Responsiv
 import { ArrowUpRight, ChevronDown, Droplets, FileCheck2, FileText, Fuel, Pencil, Plus, ReceiptText, Trash2, UsersRound, Wrench } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Modal } from './progress-form';
-import { costSummary, parseScaledDecimal, inclusiveCost, type CostDocumentType, type FuelRecord, type InvoicePoRecord, type VatStatus } from '@/lib/domain/costs';
+import { costSummary, parseScaledDecimal, inclusiveCost, documentCost, financialRecordCost, type CostDocumentType, type FuelRecord, type InvoicePoRecord, type VatStatus } from '@/lib/domain/costs';
 import { riyadhDate } from '@/lib/domain/date';
 import { post, type State } from '@/lib/types';
 
@@ -21,9 +21,9 @@ function CostTooltip({ active, payload, label }: { active?: boolean; payload?: {
   return <div className="cost-tooltip"><strong>{label || payload[0].name}</strong>{payload[0].payload?.company && <small>{payload[0].payload.company}</small>}<Money value={Number(payload[0].value || 0)} /></div>;
 }
 
-function VatPreview({ amount, vatStatus }: { amount: string; vatStatus: VatStatus }) {
+function VatPreview({ amount, vatStatus, document = false }: { amount: string; vatStatus: VatStatus; document?: boolean }) {
   let preview = null;
-  try { preview = inclusiveCost(parseScaledDecimal(amount, 100), vatStatus); } catch {}
+  try { preview = (document ? documentCost : inclusiveCost)(parseScaledDecimal(amount, 100), vatStatus); } catch {}
   if (!preview) return null;
   return <div className="vat-preview">
     <span>Total Including VAT<Money value={preview.grossHalalas} /></span>
@@ -81,7 +81,7 @@ function CostDocumentEditor({ kind, item, onClose, onSaved }: { kind: CostDocume
     } catch (reason) { setError(reason instanceof Error ? reason.message : `Unable to save ${label.toLowerCase()}.`); }
     finally { setBusy(false); }
   }
-  return <Modal open title={`${item ? 'Edit' : 'Add'} ${label}`} description="Non-VAT amounts receive 15% VAT. VAT Included amounts are used as entered." onClose={onClose}>
+  return <Modal open title={`${item ? 'Edit' : 'Add'} ${label}`} description="Non-VAT amounts are final with zero VAT. VAT Included amounts already include VAT; it is never added again." onClose={onClose}>
     <form onSubmit={save}><div className="form-grid">
       <label className="field">Date<input required type="date" max={riyadhDate()} value={date} onChange={(event) => setDate(event.target.value)} /></label>
       <label className="field">VAT Status<select value={vatStatus} onChange={(event) => setVatStatus(event.target.value as VatStatus)}><option value="NON_VAT">Non-VAT</option><option value="VAT_INCLUDED">VAT Included</option></select></label>
@@ -90,7 +90,7 @@ function CostDocumentEditor({ kind, item, onClose, onSaved }: { kind: CostDocume
       <label className="field">Amount (SAR)<input required inputMode="decimal" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
       <label className="field">Paid By<input required maxLength={150} value={paidBy} onChange={(event) => setPaidBy(event.target.value)} /></label>
       <label className="field full">Description<textarea maxLength={1000} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
-    </div><VatPreview amount={amount} vatStatus={vatStatus} />
+    </div><VatPreview amount={amount} vatStatus={vatStatus} document />
     {error && <p className="error" role="alert">{error}</p>}<div className="form-actions"><button className="secondary" type="button" onClick={onClose}>Cancel</button><Button type="submit" className="primary" disabled={busy}>{busy ? 'Saving…' : `Save ${label}`}</Button></div></form>
   </Modal>;
 }
@@ -135,6 +135,7 @@ export function CostControlPage({ state, refresh, preview, management = false }:
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to archive record.'); }
   }
   if (management) return <div className="cost-page">
+    {!preview && <div className="inline-actions"><a className="secondary" href="/api/finance.xlsx" download>Download Excel</a></div>}
     {error && <div className="notice" role="alert">{error}</div>}
     <FinanceSection title="Fuel" count={summary.fuel.length} subtotal={summary.costs.fuel.grossHalalas} addButton={<Button className="primary" disabled={preview} onClick={() => setFuelEditor('new')}><Plus size={14} /> Add Fuel</Button>} summary={<div className="fuel-mini-chart">{fuelAnalysis.map((item) => <div key={item.name}><span>{item.name}</span><strong>{item.litres.toLocaleString()} L</strong><Money value={item.value} /></div>)}</div>}>{!summary.fuel.length ? <p className="cost-empty">No fuel costs recorded through today.</p> : <div className="cost-records">{summary.fuel.map((item) => <article key={item.id}><div><strong>{item.fuelType === 'PETROL' ? 'Petrol' : 'Diesel'} · {(item.quantityMillilitres / 1000).toLocaleString()} L</strong><small>{item.date} · {item.vatStatus === 'VAT_INCLUDED' ? 'VAT Included' : 'Non-VAT'}</small></div><RecordCost item={item} /><div className="inline-actions"><button className="text-button" onClick={() => setFuelEditor(item)}><Pencil size={12} /> Edit</button><button className="text-button danger" onClick={() => void archive('fuel', item.id)}><Trash2 size={12} /> Archive</button></div></article>)}</div>}</FinanceSection>
     <div className="two-columns cost-document-grid">
@@ -182,7 +183,7 @@ export function CostKpiCards({ state, dashboard = false, selection = 'all', href
 }
 
 function RecordCost({ item }: { item: FuelRecord | InvoicePoRecord }) {
-  const value = inclusiveCost(item.enteredAmountHalalas, item.vatStatus);
+  const value = financialRecordCost(item);
   return <div className="cost-record-amount"><span>Total Including VAT</span><Money value={value.grossHalalas} />
     <small>VAT Amount (15%): <Money value={value.vatHalalas} /></small>
     <small>Amount Without VAT: <Money value={value.netHalalas} /></small>

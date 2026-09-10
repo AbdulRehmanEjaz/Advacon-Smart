@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { MANPOWER_DAILY_RATE_HALALAS, type AttendanceRecord, type Resource } from '../lib/domain/attendance';
-import { costSummary, parseScaledDecimal, vatBreakdown, inclusiveCost } from '../lib/domain/costs';
+import { costSummary, parseScaledDecimal, vatBreakdown, inclusiveCost, documentCost } from '../lib/domain/costs';
 
 const resource = (id: string, rate: number): Resource => ({ id, code: id, name: id, company: 'Rental Co', dailyRateHalalas: rate, active: true, archivedAt: null, createdAt: '', updatedAt: '' });
 const attendance = (resourceId: string, date: string, status: AttendanceRecord['status']): AttendanceRecord => ({ id: `${resourceId}-${date}`, resourceId, date, status, createdAt: '', updatedAt: '' });
@@ -27,7 +27,7 @@ void test('project-to-date costs include previous months and exclude future and 
   });
   assert.equal(result.manpowerHalalas, 26000);
   assert.equal(result.invoiceHalalas, 20000);
-  assert.equal(result.totalHalalas, 52900);
+  assert.equal(result.totalHalalas, 49900);
 });
 
 void test('project cost uses attendance and net financial records for the selected month', () => {
@@ -54,11 +54,11 @@ void test('project cost uses attendance and net financial records for the select
   assert.equal(summary.invoices.length, 1);
   assert.equal(summary.purchaseOrders.length, 1);
   assert.equal(summary.vatRemovedHalalas, 151_500);
-  assert.equal(summary.totalHalalas, 2_435_700);
+  assert.equal(summary.totalHalalas, 2_285_700);
   assert.deepEqual(summary.costs.manpower, { netHalalas: 13000, vatHalalas: 1950, grossHalalas: 14950 });
   assert.deepEqual(summary.costs.equipment, { netHalalas: 85000, vatHalalas: 12750, grossHalalas: 97750 });
   assert.deepEqual(summary.costs.fuel, { netHalalas: 20000, vatHalalas: 3000, grossHalalas: 23000 });
-  assert.deepEqual(summary.costs.invoices, { netHalalas: 1000000, vatHalalas: 150000, grossHalalas: 1150000 });
+  assert.deepEqual(summary.costs.invoices, { netHalalas: 1000000, vatHalalas: 0, grossHalalas: 1000000 });
   assert.deepEqual(summary.costs.pos, { netHalalas: 1000000, vatHalalas: 150000, grossHalalas: 1150000 });
   assert.equal(summary.total.grossHalalas, summary.total.netHalalas + summary.total.vatHalalas);
 });
@@ -71,4 +71,17 @@ void test('VAT-inclusive cost preserves gross and rounds safely at halala precis
   assert.equal(inclusiveCost(1, 'VAT_INCLUDED').grossHalalas, 1);
   assert.throws(() => inclusiveCost(Number.MAX_SAFE_INTEGER, 'NON_VAT'));
   assert.throws(() => inclusiveCost(-1, 'NON_VAT'));
+});
+
+void test('Non-VAT invoices and POs contribute the exact entered final amount', () => {
+  for (const amount of [0, 1, 10, 50000, 123456, Number.MAX_SAFE_INTEGER]) {
+    assert.deepEqual(documentCost(amount, 'NON_VAT'), { netHalalas: amount, vatHalalas: 0, grossHalalas: amount });
+  }
+  assert.deepEqual(documentCost(57500, 'VAT_INCLUDED'), { netHalalas: 50000, vatHalalas: 7500, grossHalalas: 57500 });
+  assert.throws(() => documentCost(-1, 'NON_VAT'));
+  for (const recordType of ['PO', 'INVOICE'] as const) {
+    const result = costSummary({ manpower: [], equipment: [], manpowerAttendance: [], equipmentAttendance: [], fuelRecords: [], invoicePoRecords: [{ id: 'test', recordType, date: '2026-09-01', vatStatus: 'NON_VAT', enteredAmountHalalas: 50000, netAmountHalalas: 50000, vatRemovedHalalas: 0, invoiceNo: '001', poNo: '001', paidBy: 'Project', description: '', active: true, createdAt: '', updatedAt: '' }] });
+    assert.deepEqual(result.total, { netHalalas: 50000, vatHalalas: 0, grossHalalas: 50000 });
+    assert.equal(result.totalHalalas, 50000);
+  }
 });

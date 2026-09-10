@@ -2,6 +2,7 @@ import { strToU8, zipSync } from 'fflate';
 import type { AttendanceRecord, Resource } from '@/lib/domain/attendance';
 import { statusCounts } from '@/lib/domain/attendance';
 import type { State } from '@/lib/types';
+import { financialRecordCost, type FuelRecord, type InvoicePoRecord } from '@/lib/domain/costs';
 
 const xml = (value: string | number) =>
   String(value).replace(
@@ -27,6 +28,47 @@ const numeric = (ref: string, value: number, style = 6) =>
   `<c r="${ref}" s="${style}"><v>${value}</v></c>`;
 const row = (number: number, cells: string[], height?: number) =>
   `<row r="${number}"${height ? ` ht="${height}" customHeight="1"` : ''}>${cells.join('')}</row>`;
+
+export function buildFinanceXlsx(state: Pick<State, 'fuelRecords' | 'invoicePoRecords'>) {
+  const ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  const rel = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const sheets = [
+    { name: 'Fuel Details', records: state.fuelRecords || [], kind: 'FUEL' },
+    { name: 'POs Details', records: (state.invoicePoRecords || []).filter((r) => r.recordType === 'PO'), kind: 'PO' },
+    { name: 'Invoices Details', records: (state.invoicePoRecords || []).filter((r) => r.recordType === 'INVOICE'), kind: 'INVOICE' },
+  ];
+  const files: Record<string, Uint8Array> = {};
+  sheets.forEach(({ name, records, kind }, index) => {
+    const fuel = kind === 'FUEL';
+    const headers = ['Date', 'VAT Status', ...(fuel ? ['Fuel Type', 'Quantity (litres)'] : ['Invoice No.', ...(kind === 'PO' ? ['PO No.'] : [])]), 'Amount (SAR)', ...(!fuel ? ['Paid By'] : []), 'Description', 'VAT Amount (SAR)', 'Amount Without VAT (SAR)', 'Final / Total Amount (SAR)', 'Record Status'];
+    const widths = headers.map((header) => header === 'Description' ? 55 : header === 'Paid By' ? 25 : header.includes('Amount') ? 24 : 20);
+    const last = column(headers.length);
+    const rows = [row(1, [inline('A1', `Tree Translocation Project - 336-A | ${name}`, 1)], 28), row(2, [inline('A2', 'All saved records. Archived records are identified and excluded from project totals.', 0)], 24), row(4, headers.map((h, i) => inline(`${column(i + 1)}4`, h, 2)), 34)];
+    records.forEach((record: FuelRecord | InvoicePoRecord, offset) => {
+      const n = offset + 5;
+      const cost = financialRecordCost(record);
+      const date = (Date.parse(`${record.date}T00:00:00Z`) - Date.UTC(1899, 11, 30)) / 86400000;
+      const cells: { value: string | number; style: number }[] = [
+        { value: date, style: 4 }, { value: record.vatStatus === 'VAT_INCLUDED' ? 'VAT Included' : 'Non-VAT', style: 0 },
+        ...('fuelType' in record ? [{ value: record.fuelType === 'PETROL' ? 'Petrol' : 'Diesel', style: 0 }, { value: record.quantityMillilitres / 1000, style: 5 }] : [{ value: record.invoiceNo || '', style: 0 }, ...(kind === 'PO' ? [{ value: record.poNo || '', style: 0 }] : [])]),
+        { value: record.enteredAmountHalalas / 100, style: 3 },
+        ...('paidBy' in record ? [{ value: record.paidBy, style: 0 }] : []),
+        { value: record.description, style: 0 },
+        { value: cost.vatHalalas / 100, style: 3 }, { value: cost.netHalalas / 100, style: 3 }, { value: cost.grossHalalas / 100, style: 3 },
+        { value: record.active ? 'Active' : 'Archived', style: 0 },
+      ];
+      const lines = Math.max(...cells.map((cell, i) => String(cell.value).split('\n').reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / (widths[i] - 3))), 0)));
+      rows.push(row(n, cells.map((cell, i) => typeof cell.value === 'number' ? numeric(`${column(i + 1)}${n}`, cell.value, cell.style) : inline(`${column(i + 1)}${n}`, cell.value, cell.style)), Math.max(24, lines * 15)));
+    });
+    files[`xl/worksheets/sheet${index + 1}.xml`] = strToU8(`<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="${ns}"><sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="4" topLeftCell="A5" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${widths.map((width, i) => `<col min="${i + 1}" max="${i + 1}" width="${width}" customWidth="1"/>`).join('')}</cols><sheetData>${rows.join('')}</sheetData><autoFilter ref="A4:${last}${Math.max(4, records.length + 4)}"/><mergeCells count="2"><mergeCell ref="A1:${last}1"/><mergeCell ref="A2:${last}2"/></mergeCells><pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/><pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>`);
+  });
+  files['[Content_Types].xml'] = strToU8(`<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`);
+  files['_rels/.rels'] = strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${rel}/officeDocument" Target="xl/workbook.xml"/></Relationships>`);
+  files['xl/workbook.xml'] = strToU8(`<workbook xmlns="${ns}" xmlns:r="${rel}"><sheets>${sheets.map((sheet, i) => `<sheet name="${sheet.name}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`);
+  files['xl/_rels/workbook.xml.rels'] = strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${rel}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId4" Type="${rel}/styles" Target="styles.xml"/></Relationships>`);
+  files['xl/styles.xml'] = strToU8(`<styleSheet xmlns="${ns}"><numFmts count="3"><numFmt numFmtId="164" formatCode="&quot;SAR &quot;#,##0.00"/><numFmt numFmtId="165" formatCode="dd mmm yyyy"/><numFmt numFmtId="166" formatCode="#,##0.000"/></numFmts><fonts count="3"><font><sz val="11"/><name val="Arial"/></font><font><b/><sz val="15"/><color rgb="FF075C38"/><name val="Arial"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Arial"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF075C38"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="6">${[0, 1, 2, 3, 4, 5].map((i) => `<xf numFmtId="${i >= 3 ? 164 + i - 3 : 0}" fontId="${i === 1 ? 1 : i === 2 ? 2 : 0}" fillId="${i === 2 ? 2 : 0}" borderId="0" xfId="0" applyAlignment="1" applyNumberFormat="1"><alignment horizontal="${i === 2 ? 'center' : i >= 3 ? 'right' : 'left'}" vertical="center" wrapText="1"/></xf>`).join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`);
+  return zipSync(files, { level: 6 });
+}
 
 function monthDays(month: string) {
   const [year, number] = month.split('-').map(Number);
