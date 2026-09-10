@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { readFile } from 'node:fs/promises';
+import { manpowerAttendanceSummary } from '../lib/domain/dashboard-attendance';
+import type { Resource, AttendanceRecord } from '../lib/domain/attendance';
+
+void test('attendance card counts recorded P/A through today without treating holidays or missing days as absent', () => {
+  const person: Resource = { id: 'worker', name: 'Worker', code: '001', company: '', dailyRateHalalas: 13000, active: true, archivedAt: null, createdAt: '', updatedAt: '' };
+  const records: AttendanceRecord[] = (['P', 'P', 'P', 'A', 'F', 'H'] as const).map((status, i) => ({ id: String(i), resourceId: 'worker', date: `2026-09-0${i + 1}`, status, createdAt: '', updatedAt: '' }));
+  const input = { manpower: [person], manpowerAttendance: [...records, { ...records[0], id: 'future', date: '2026-09-20' }, { ...records[0], id: 'unknown', resourceId: 'unknown' }] };
+  const before = JSON.stringify(input);
+  assert.deepEqual(manpowerAttendanceSummary(input, '2026-09-10'), { present: 3, absent: 1, percentage: 75 });
+  assert.equal(JSON.stringify(input), before);
+  assert.equal(manpowerAttendanceSummary({}, '2026-09-10').percentage, null);
+  assert.equal(manpowerAttendanceSummary({ manpower: [person], manpowerAttendance: [records[3]] }, '2026-09-10').percentage, 0);
+  assert.equal(manpowerAttendanceSummary({ manpower: [person], manpowerAttendance: [records[0]] }, '2026-09-10').percentage, 100);
+});
+
+void test('six-card order is scoped to dashboard categories only', async () => {
+  const source = await readFile(new URL('../components/cost-control.tsx', import.meta.url), 'utf8');
+  assert.match(source, /dashboard && selection === 'categories'/);
+  assert.match(source, /\[cards\[1\], cards\[2\], cards\[4\], cards\[5\], cards\[3\]\]/);
+  assert.ok(source.indexOf('<ManpowerAttendanceCard') < source.indexOf('{orderedCards.filter'));
+});

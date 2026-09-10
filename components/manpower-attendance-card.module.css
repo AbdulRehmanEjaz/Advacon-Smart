@@ -1,0 +1,10 @@
+.card { gap: 6px; }
+:global(.dashboard-cost-kpis):has(> .card) { grid-auto-rows: 1fr; }
+.chart { width: 100%; max-width: 155px; margin: 0 auto; }
+.chart svg { display: block; width: 100%; height: auto; }
+.value { font-size: 20px; font-weight: 700; fill: #163521; }
+.caption { font-size: 10px; fill: #728077; }
+.legend { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; }
+.legend span { display: inline-flex; gap: 5px; align-items: center; }
+.legend i { width: 12px; height: 12px; border-radius: 50%; background: #087443; }
+.legend .striped { background: repeating-linear-gradient(115deg, #e0f1e6 0 3px, #4aa374 3px 5px); }
