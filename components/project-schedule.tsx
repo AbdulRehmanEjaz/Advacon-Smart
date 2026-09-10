@@ -10,12 +10,11 @@ import type { State } from '@/lib/types';
 const dateLabel = (value: string) => new Date(`${value}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 const percentage = (value: number | null) => value == null ? 'Unavailable' : `${value.toFixed(1)}%`;
 
-export function ProjectSchedule({ state }: { state: State }) {
+export function ProgressComparisonCard({ state, compact = false }: { state: State; compact?: boolean }) {
   const gradientId = useId().replace(/:/g, '');
   const today = riyadhDate();
   const comparison = useMemo(() => scheduleComparison(state, today), [state, today]);
-  return <div style={{ display: 'grid', gap: 20, minWidth: 0 }}>
-    <section className={`card ${styles.chartCard}`} aria-label="Schedule progress comparison">
+  return <section className={`card ${styles.chartCard} ${compact ? styles.compact : ''}`} aria-label="Schedule progress comparison">
       <div className="card-heading"><div><h2>Planned vs Current Progress</h2><p>Approved baseline · 15 Aug–30 Nov 2026</p></div><span className={`badge ${comparison.status === 'Behind plan' ? 'rejected' : 'approved'}`}>{comparison.status}</span></div>
       <div className="kpi-grid">
         <div><small>Planned Progress · {dateLabel(today)}</small><h3>{percentage(comparison.planned)}</h3></div>
@@ -47,7 +46,12 @@ export function ProjectSchedule({ state }: { state: State }) {
         </ResponsiveContainer>
       </div>
       <p className="card-subtitle">Plan uses the existing KPI weights spread linearly across each main task window. Final testing and handover share the Final Completion weight across 26–30 Nov. Subtasks are not counted again. Current Progress uses approved KPI history, including opening balances and approved adjustments; no future actuals are projected. On plan means within 0.05 percentage points.</p>
-    </section>
+    </section>;
+}
+
+export function ProjectSchedule({ state }: { state: State }) {
+  return <div style={{ display: 'grid', gap: 20, minWidth: 0 }}>
+    <ProgressComparisonCard state={state} />
     {[{ title: 'Main Tasks', tasks: mainTasks }, { title: 'Irrigation Subtasks', tasks: irrigationTasks }, { title: 'Post & Wire Subtasks', tasks: supportTasks }].map(({ title, tasks }) => <section className="card" key={title}>
       <div className="card-heading"><h3>{title}</h3><span className="badge">Baseline 2026</span></div>
       <div className="table-scroll"><table className="responsive-table"><thead><tr><th scope="col">Task</th><th scope="col">Start</th><th scope="col">Finish</th></tr></thead><tbody>{tasks.map((task) => <tr key={task.id}><td data-label="Task"><strong>{task.id}</strong> · {task.name}</td><td data-label="Start"><time dateTime={task.start}>{dateLabel(task.start)}</time></td><td data-label="Finish"><time dateTime={task.finish}>{dateLabel(task.finish)}</time></td></tr>)}</tbody></table></div>

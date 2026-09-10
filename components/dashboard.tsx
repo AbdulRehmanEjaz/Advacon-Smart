@@ -1,5 +1,6 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
+import { ProgressComparisonCard } from './project-schedule';
 import { CostKpiCards, CostComposition } from './cost-control';
 import {
   ArrowUpRight,
@@ -15,17 +16,7 @@ import {
   Leaf,
 } from 'lucide-react';
 import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-} from 'recharts';
-import {
   calculateKpiProgress,
-  plannedProgress,
   productivity,
   readiness,
 } from '@/lib/domain/calculations';
@@ -133,7 +124,6 @@ export function Dashboard({
   state: State;
   href: (v: string) => string;
 }) {
-  const [range, setRange] = useState('7 Days');
   if (state.user.role === 'FOREMAN')
     return (
       <>
@@ -203,21 +193,15 @@ export function Dashboard({
     <AdminDashboard
       state={state}
       href={href}
-      range={range}
-      setRange={setRange}
     />
   );
 }
 function AdminDashboard({
   state,
   href,
-  range,
-  setRange,
 }: {
   state: State;
   href: (v: string) => string;
-  range: string;
-  setRange: (v: string) => void;
 }) {
   const [now] = useState(() => Date.now());
   const settings = state.settings!,
@@ -227,7 +211,6 @@ function AdminDashboard({
       state.submissions,
       settings,
     ),
-    planned = plannedProgress(state.packages, today()),
     pending = state.submissions.filter((s) => s.status === 'WAITING');
   const production = productivity(
     state.submissions,
@@ -235,43 +218,6 @@ function AdminDashboard({
     today(),
     Number(settings.translocationTarget),
   );
-  const chart = useMemo(() => {
-    const end = new Date(today());
-    let start = new Date(end);
-    start.setUTCDate(end.getUTCDate() - (range === '7 Days' ? 6 : 29));
-    if (range === 'Project') {
-      const starts = state.packages.flatMap((p) =>
-        p.activities.map((a) => a.schedule?.start).filter(Boolean),
-      ) as string[];
-      if (starts.length) start = new Date(starts.sort()[0]);
-    }
-    const span = Math.max(
-      0,
-      Math.round((end.getTime() - start.getTime()) / 86400000),
-    );
-    const step = Math.max(1, Math.ceil(span / 60));
-    return Array.from({ length: Math.ceil(span / step) + 1 }, (_, i) => {
-      const d = new Date(start);
-      d.setUTCDate(start.getUTCDate() + Math.min(i * step, span));
-      const date = d.toISOString().slice(0, 10);
-      return {
-        date,
-        label: d.toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          timeZone: 'UTC',
-        }),
-        actual: calculateKpiProgress(
-          state.packages,
-          state.openingBalances,
-          state.submissions,
-          settings,
-          date,
-        ).overall,
-        planned: plannedProgress(state.packages, date),
-      };
-    });
-  }, [state, range, settings]);
   return (
     <>
       <div className="kpi-grid dashboard-kpi-grid dashboard-summary-row">
@@ -290,100 +236,7 @@ function AdminDashboard({
       <div className="dashboard-primary-grid">
         <div className="dashboard-primary-main">
           <section className="dashboard-costs"><CostKpiCards state={state} dashboard selection="categories" /></section>
-          <article className="card analytics">
-          <div className="card-heading">
-            <div>
-              <h2 className="card-title">Project Analytics</h2>
-              <p className="card-subtitle">
-                Planned vs actual physical progress
-              </p>
-            </div>
-            <div className="segmented">
-              {['7 Days', '30 Days', 'Project'].map((r) => (
-                <button
-                  key={r}
-                  className={range === r ? 'selected' : ''}
-                  onClick={() => setRange(r)}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="chart">
-            <ResponsiveContainer
-              width="100%"
-              height="100%"
-              initialDimension={{ width: 600, height: 210 }}
-            >
-              <LineChart
-                data={chart}
-                margin={{ top: 15, right: 12, left: -25, bottom: 0 }}
-              >
-                <CartesianGrid
-                  vertical={false}
-                  stroke="#f0f3f1"
-                  strokeDasharray="3 6"
-                />
-                <XAxis
-                  dataKey="label"
-                  axisLine={false}
-                  tickLine={false}
-                  minTickGap={35}
-                  tick={{ fill: '#7f8c84', fontSize: 12.5 }}
-                />
-                <YAxis
-                  domain={[0, 100]}
-                  axisLine={false}
-                  tickLine={false}
-                  ticks={[0, 25, 50, 75, 100]}
-                  tick={{ fill: '#7f8c84', fontSize: 12.5 }}
-                  tickFormatter={(v) => `${v}%`}
-                />
-                <Tooltip
-                  contentStyle={{
-                    borderRadius: 12,
-                    border: '1px solid #e9eeeb',
-                    fontSize: 13,
-                  }}
-                  formatter={(v) => `${Number(v).toFixed(2)}%`}
-                />
-                <Line
-                  name="Planned"
-                  type="monotone"
-                  dataKey="planned"
-                  stroke="#bccbc1"
-                  strokeDasharray="5 5"
-                  dot={false}
-                  strokeWidth={2}
-                />
-                <Line
-                  name="Actual"
-                  type="monotone"
-                  dataKey="actual"
-                  stroke="#087443"
-                  dot={false}
-                  strokeWidth={3}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="legend">
-            <span>
-              <i />
-              Actual
-            </span>
-            <span>
-              <i className="muted-dot" />
-              Planned
-            </span>
-            <span style={{ marginLeft: 'auto' }}>
-              {planned == null
-                ? 'Add a schedule to show the planned curve'
-                : 'Approved quantities only'}
-            </span>
-          </div>
-          </article>
+          <ProgressComparisonCard state={state} compact />
 
         </div>
         <div className="dashboard-primary-side">
