@@ -1,7 +1,8 @@
 'use client';
 
-import { useMemo } from 'react';
-import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { useId, useMemo } from 'react';
+import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import styles from './project-schedule.module.css';
 import { mainTasks, irrigationTasks, supportTasks, scheduleComparison } from '@/lib/domain/project-schedule';
 import { riyadhDate } from '@/lib/domain/date';
 import type { State } from '@/lib/types';
@@ -10,28 +11,39 @@ const dateLabel = (value: string) => new Date(`${value}T00:00:00Z`).toLocaleDate
 const percentage = (value: number | null) => value == null ? 'Unavailable' : `${value.toFixed(1)}%`;
 
 export function ProjectSchedule({ state }: { state: State }) {
+  const gradientId = useId().replace(/:/g, '');
   const today = riyadhDate();
   const comparison = useMemo(() => scheduleComparison(state, today), [state, today]);
   return <div style={{ display: 'grid', gap: 20, minWidth: 0 }}>
-    <section className="card" aria-label="Schedule progress comparison">
+    <section className={`card ${styles.chartCard}`} aria-label="Schedule progress comparison">
       <div className="card-heading"><div><h2>Planned vs Current Progress</h2><p>Approved baseline · 15 Aug–30 Nov 2026</p></div><span className={`badge ${comparison.status === 'Behind plan' ? 'rejected' : 'approved'}`}>{comparison.status}</span></div>
       <div className="kpi-grid">
         <div><small>Planned Progress · {dateLabel(today)}</small><h3>{percentage(comparison.planned)}</h3></div>
         <div><small>Current Progress · approved KPI</small><h3>{percentage(comparison.current)}</h3></div>
         <div><small>Variance · percentage points</small><h3>{comparison.variance == null ? 'Unavailable' : `${comparison.variance > 0 ? '+' : ''}${comparison.variance.toFixed(1)} pp`}</h3></div>
       </div>
-      <div style={{ width: '100%', height: 330, minWidth: 0 }}>
+      <div className={styles.legend} aria-label="Chart legend">
+        <span><i style={{ background: '#5849ac' }} />Planned Progress</span>
+        <span><i style={{ background: '#32bed0' }} />Current Progress</span>
+      </div>
+      <div className={styles.plot}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={comparison.chart} margin={{ top: 25, right: 20, bottom: 10, left: 0 }} accessibilityLayer>
-            <CartesianGrid vertical={false} stroke="#e8eeea" />
-            <XAxis dataKey="date" tickFormatter={dateLabel} minTickGap={45} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-            <YAxis domain={[0, 100]} tickFormatter={(value: number) => `${value}%`} width={45} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-            <Tooltip labelFormatter={(value) => dateLabel(String(value))} formatter={(value) => percentage(value == null ? null : Number(value))} />
-            <Legend />
+          <AreaChart data={comparison.chart} margin={{ top: 25, right: 16, bottom: 10, left: 0 }} accessibilityLayer>
+            <defs>
+              <linearGradient id={`${gradientId}-planned`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#5849ac" stopOpacity={0.16} /><stop offset="100%" stopColor="#5849ac" stopOpacity={0} /></linearGradient>
+              <linearGradient id={`${gradientId}-current`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#32bed0" stopOpacity={0.18} /><stop offset="100%" stopColor="#32bed0" stopOpacity={0} /></linearGradient>
+            </defs>
+            <CartesianGrid vertical={false} stroke="#edf0f5" />
+            <XAxis dataKey="date" tickFormatter={dateLabel} minTickGap={45} tick={{ fontSize: 12, fill: '#718ba4' }} tickMargin={12} axisLine={false} tickLine={false} />
+            <YAxis domain={[0, 100]} tickFormatter={(value: number) => `${value}%`} width={45} tick={{ fontSize: 12, fill: '#718ba4' }} axisLine={false} tickLine={false} />
+            <Tooltip content={({ active, payload, label }) => {
+              if (!active || !payload?.length) return null;
+              return <div className={styles.tooltip}><small>{dateLabel(String(label))} 2026</small>{payload.filter((point) => point.value != null).map((point) => <div key={String(point.dataKey)}><span>{point.name}</span><strong>{percentage(Number(point.value))}</strong></div>)}</div>;
+            }} cursor={{ stroke: '#c6d0dc', strokeDasharray: '3 3' }} />
+            <Area name="Planned Progress" dataKey="planned" type="monotone" stroke="#5849ac" fill={`url(#${gradientId}-planned)`} strokeWidth={3} dot={false} activeDot={{ r: 5, fill: '#fff', stroke: '#5849ac', strokeWidth: 3 }} isAnimationActive={false} />
+            <Area name="Current Progress" dataKey="current" type="monotone" stroke="#32bed0" fill={`url(#${gradientId}-current)`} strokeWidth={3} dot={false} activeDot={{ r: 5, fill: '#fff', stroke: '#32bed0', strokeWidth: 3 }} connectNulls={false} isAnimationActive={false} />
             <ReferenceLine x={today} stroke="#7c827f" strokeDasharray="3 3" label={{ value: 'Today', position: 'insideTopRight', fontSize: 12 }} />
-            <Line name="Planned Progress" dataKey="planned" type="linear" stroke="#688299" strokeWidth={2.5} strokeDasharray="6 4" dot={false} isAnimationActive={false} />
-            <Line name="Current Progress" dataKey="current" type="linear" stroke="#087443" strokeWidth={3} dot={false} connectNulls={false} isAnimationActive={false} />
-          </LineChart>
+          </AreaChart>
         </ResponsiveContainer>
       </div>
       <p className="card-subtitle">Plan uses the existing KPI weights spread linearly across each main task window. Final testing and handover share the Final Completion weight across 26–30 Nov. Subtasks are not counted again. Current Progress uses approved KPI history, including opening balances and approved adjustments; no future actuals are projected. On plan means within 0.05 percentage points.</p>

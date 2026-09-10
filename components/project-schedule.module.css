@@ -1,0 +1,46 @@
+.chartCard {
+  border-radius: 20px;
+  box-shadow: 0 12px 32px rgb(20 40 60 / 5%);
+  min-width: 0;
+}
+
+.legend {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 20px 0 4px;
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #e0e7f0;
+  border-radius: 8px;
+  padding: 7px 10px;
+  color: #627d97;
+  font-size: 13px;
+}
+
+.legend i { width: 12px; height: 12px; border-radius: 4px; }
+.plot { width: 100%; height: clamp(300px, 32vw, 390px); min-width: 0; }
+
+.tooltip {
+  background: #07182e;
+  color: #fff;
+  border-radius: 15px;
+  padding: 14px 18px;
+  box-shadow: 0 10px 24px rgb(7 24 46 / 16%);
+  min-width: 190px;
+}
+
+.tooltip small { display: block; margin-bottom: 12px; color: #dfe9f3; }
+.tooltip div { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; margin-top: 6px; }
+.tooltip span { color: #a8c1d8; font-size: 12px; }
+.tooltip strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 600px) {
+  .legend { justify-content: flex-start; }
+  .tooltip { min-width: 160px; padding: 12px; }
+}
