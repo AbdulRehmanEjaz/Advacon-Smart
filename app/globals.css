@@ -2589,7 +2589,7 @@ td small,
 .dashboard-summary-row .cost-kpi > small { line-height: 1.4; }
 .dashboard-summary-row .progress-summary { display: flex; flex-direction: column; justify-content: flex-start; }
 .dashboard-summary-row .gauge-wrap { width: 100%; max-width: 260px; margin: auto auto 4px; }
-.dashboard-summary-row .gauge-number { position: absolute; bottom: 10%; margin: 0; }
+.dashboard-summary-row .gauge-number { position: absolute; bottom: 2px; margin: 0; }
 .dashboard-summary-row .gauge-number strong { font-size: clamp(32px, 2.6vw, 42px); font-weight: 700; line-height: 1.15; }
 .dashboard-summary-row .gauge-number small { font-size: 12.5px; line-height: 1.4; }
 .dashboard-summary-row .gauge-remaining { margin: 0 0 auto; text-align: center; font-size: 14px; }
