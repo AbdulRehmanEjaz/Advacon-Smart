@@ -160,7 +160,7 @@ export function CostControlPage({ state, refresh, preview, management = false }:
   </div>;
 }
 
-export function CostKpiCards({ state, dashboard = false, selection = 'all', href }: { state: State; dashboard?: boolean; selection?: 'all' | 'total' | 'categories'; href?: string }) {
+export function CostKpiCards({ state, dashboard = false, selection = 'all', href, trailing, containerClassName }: { state: State; dashboard?: boolean; selection?: 'all' | 'total' | 'categories'; href?: string; trailing?: ReactNode; containerClassName?: string }) {
   if (!state.fuelRecords || !state.invoicePoRecords || !state.manpower) return <output className="card">Loading project costs…</output>;
   const summary = costSummary({ throughDate: riyadhDate(), manpower: state.manpower, equipment: state.equipment || [], manpowerAttendance: state.manpowerAttendance || [], equipmentAttendance: state.equipmentAttendance || [], fuelRecords: state.fuelRecords, invoicePoRecords: state.invoicePoRecords });
   const cards = [
@@ -173,14 +173,14 @@ export function CostKpiCards({ state, dashboard = false, selection = 'all', href
   ];
   const dashboardCategories = dashboard && selection === 'categories';
   const orderedCards = dashboardCategories ? [cards[1], cards[2], cards[4], cards[5], cards[3]] : cards;
-  return <div className={`cost-kpis ${dashboard ? 'dashboard-cost-kpis' : ''} ${selection === 'total' ? 'cost-total-only' : ''}`}>
+  return <div className={`cost-kpis ${dashboard ? 'dashboard-cost-kpis' : ''} ${selection === 'total' ? 'cost-total-only' : ''} ${containerClassName ?? ''}`}>
     {orderedCards.filter((_, index) => dashboardCategories || selection === 'all' || (selection === 'total' ? index === 0 : index > 0)).map(({ label, value, Icon }) => <article key={label} className={`cost-kpi ${value === summary.total ? 'featured' : ''}`}>
       <Icon /><span>{label}</span><small>Total Including VAT</small>
       {href && value === summary.total && <a className="round-arrow" href={href} aria-label="Open Cost Control"><ArrowUpRight /></a>}
       <strong><Money value={value.grossHalalas} /></strong>
       <small>VAT Amount (15%): <Money value={value.vatHalalas} /></small>
       <small>Amount Without VAT: <Money value={value.netHalalas} /></small>
-    </article>)}
+    </article>)}{trailing}
   </div>;
 }
 

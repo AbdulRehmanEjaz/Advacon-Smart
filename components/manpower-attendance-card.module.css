@@ -12,6 +12,20 @@
 .dateNavigation button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: #087443; cursor: pointer; }
 .dateNavigation button:hover { background: transparent; color: #163521; }
 .dateNavigation button:focus-visible { outline: 2px solid #087443; outline-offset: 2px; }
+/* Compact variant: fits the 2-column admin cost grid (same cell size as the cost totals). */
+.compactCard { gap: 4px; padding: 14px; }
+.compactCard > h2 { font-size: 10px; font-weight: 600; }
+.compactCard .chart { max-width: 118px; }
+.compactCard .value { font-size: 15px; }
+.compactCard .emptyValue { font-size: 10px; }
+.compactCard .caption { font-size: 6.5px; }
+.compactCard .legend { flex-direction: row; justify-content: center; gap: 12px; }
+.compactCard .legend span { font-size: 10.5px; }
+.compactCard .legend b { font-size: 12px; }
+.compactCard .legend i { width: 9px; height: 9px; }
+.compactCard .dateNavigation { grid-column: auto; grid-row: auto; }
+.compactCard .dateNavigation span { font-size: 10px; }
+.compactCard .dateNavigation button { width: 22px; height: 22px; }
 .card .legend span { display: inline-flex; gap: 5px; align-items: center; color: #244a33; font-size: 14px; line-height: 1.4; }
 .legend b { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .legend i { width: 12px; height: 12px; border-radius: 50%; background: #087443; }

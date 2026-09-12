@@ -1,7 +1,8 @@
 'use client';
 import { ProgressComparisonCard } from './project-schedule';
 import { CostKpiCards, CostComposition } from './cost-control';
-import { ManpowerAttendanceCard } from './manpower-attendance-card';
+import { TaskProgressCard } from './task-progress-card';
+import styles from './task-progress-card.module.css';
 import {
   ArrowUpRight,
   ArrowRight,
@@ -216,18 +217,23 @@ function AdminDashboard({
     today(),
     Number(settings.translocationTarget),
   );
+  const isViewer = state.user.role === 'VIEWER';
   return (
     <>
-      <div className="kpi-grid dashboard-kpi-grid dashboard-summary-row">
+      <div className={`kpi-grid dashboard-kpi-grid dashboard-summary-row ${isViewer ? styles.viewerRow : styles.adminRow}`}>
         <ProgressGauge value={calculated.overall} remaining={calculated.remaining} href={href('kpi-progress')} />
-        <ManpowerAttendanceCard state={state} />
+        <TaskProgressCard state={state} />
         <CostKpiCards state={state} dashboard selection="total" href={href('cost-control')} />
         <CostComposition state={state} compact />
       </div>
       <ProgressComparisonCard state={state} compact />
       <div className="dashboard-primary-grid">
         <div className="dashboard-primary-main">
-          <section className="dashboard-costs"><CostKpiCards state={state} dashboard selection="categories" /></section>
+          {isViewer && (
+            <section className="dashboard-costs">
+              <CostKpiCards state={state} dashboard selection="categories" />
+            </section>
+          )}
           <article className="card productivity-card">
             <h2 className="card-title">Today’s Productivity</h2>
             <div className="productivity-number">{number(production.today)}</div>
@@ -283,7 +289,16 @@ function AdminDashboard({
               );
             })}
           </article>
-
+          {!isViewer && (
+            <section className={`dashboard-costs ${styles.adminCostsSection}`}>
+              <CostKpiCards
+                state={state}
+                dashboard
+                selection="categories"
+                containerClassName={styles.adminCostRow}
+              />
+            </section>
+          )}
         </div>
       </div>
     </>

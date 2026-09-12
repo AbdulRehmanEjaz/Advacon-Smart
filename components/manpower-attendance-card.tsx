@@ -6,7 +6,7 @@ import { manpowerAttendanceSummary } from '@/lib/domain/dashboard-attendance';
 import { riyadhDate } from '@/lib/domain/date';
 import styles from './manpower-attendance-card.module.css';
 
-export function ManpowerAttendanceCard({ state }: { state: State }) {
+export function ManpowerAttendanceCard({ state, compact = false }: { state: State; compact?: boolean }) {
   const id = useId().replace(/:/g, '');
   const today = riyadhDate();
   const [selectedDate, setSelectedDate] = useState(today);
@@ -17,7 +17,7 @@ export function ManpowerAttendanceCard({ state }: { state: State }) {
   });
   const { present, absent, percentage } = manpowerAttendanceSummary(state, selectedDate, 'day');
   const label = percentage == null ? 'No records' : `${percentage.toFixed(1)}%`;
-  return <article className={`card cost-kpi ${styles.card}`}>
+  return <article className={`card cost-kpi ${styles.card} ${compact ? styles.compactCard : ''}`}>
     <h2 className="card-title">Manpower Attendance</h2>
     <div className={styles.chart}>
       <svg viewBox="0 0 160 160" aria-labelledby={`${id}-title`}>

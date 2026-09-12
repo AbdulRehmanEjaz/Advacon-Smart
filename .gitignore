@@ -47,3 +47,4 @@ next-env.d.ts
 # local dev server and scratch migration-test state
 .dev-server.log
 .migration-test-state/
+.dev-demo-cost-seed.sql

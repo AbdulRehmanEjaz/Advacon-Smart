@@ -26,8 +26,11 @@ void test('attendance moves to the dashboard summary without duplicating the cos
   assert.match(source, /\[cards\[1\], cards\[2\], cards\[4\], cards\[5\], cards\[3\]\]/);
   assert.doesNotMatch(source, /ManpowerAttendanceCard/);
   const dashboard = await readFile(new URL('../components/dashboard.tsx', import.meta.url), 'utf8');
-  assert.equal(dashboard.match(/<ManpowerAttendanceCard/g)?.length, 1);
-  assert.ok(dashboard.indexOf('<ManpowerAttendanceCard') < dashboard.indexOf('<ProgressComparisonCard'));
+  // Attendance chart is fully removed from the admin dashboard; the sixth cell of the
+  // admin cost grid stays intentionally empty (reserved space, no card rendered).
+  assert.doesNotMatch(dashboard, /ManpowerAttendanceCard/);
+  // The KPIs Tasks Tracking card occupies the top summary row for both roles.
+  assert.match(dashboard, /<TaskProgressCard state=\{state\} \/>/);
 });
 
 void test('dashboard summary keeps compact side-by-side charts and responsive equal-height cards', async () => {

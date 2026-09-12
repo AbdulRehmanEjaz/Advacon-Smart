@@ -1,0 +1,50 @@
+.card { min-width: 0; gap: 6px; }
+:global(.dashboard-summary-row) > .card { grid-template-columns: minmax(0, 1fr) 200px; grid-template-rows: auto 1fr; align-items: center; gap: 6px 0; }
+/* Viewer-only row tweak: single 4-card row like admin. Below 1600px the left pair is
+   squeezed harder (gauge 0.7fr, KPI 1.3fr) and the legend slims down so all four
+   cards still fit one row; below ~1160px it falls back to the standard 2x2. */
+.viewerRow:global(.dashboard-summary-row) { grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr); }
+@media (max-width: 1600px) {
+  .viewerRow:global(.dashboard-summary-row) { grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); }
+  :global(.dashboard-summary-row) > .card { grid-template-columns: minmax(0, 1fr) 190px; }
+  .legend { max-width: 190px; }
+  .card .legendName { font-size: 10px; }
+}
+@media (max-width: 1164px) { .viewerRow:global(.dashboard-summary-row) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+@media (max-width: 850px) { .viewerRow:global(.dashboard-summary-row) { grid-template-columns: minmax(0, 1fr); } }
+.card > h2 { grid-column: 1 / -1; align-self: start; }
+.chart { grid-column: 1; grid-row: 2; width: 100%; height: 100%; min-height: 210px; margin: 0; }
+.chart :global(.recharts-surface) { display: block; transform: translateX(-14px); }
+.chart :global(.recharts-tooltip-wrapper) { z-index: 9999 !important; }
+.tooltipName { font-weight: 700; }
+.card .tooltipName { font-size: 11px; font-weight: 700; line-height: 1.35; letter-spacing: normal; }
+.card :global(.cost-tooltip) strong { font-size: 11px; }
+.legend { grid-column: 2; grid-row: 2; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 7px; min-width: 0; max-width: 200px; padding-right: 2px; }
+.card .legend li { display: flex; gap: 6px; align-items: center; color: #244a33; min-width: 0; line-height: 1.25; font-size: 10.5px; }
+.card .legend i { flex-shrink: 0; width: 9px; height: 9px; border-radius: 50%; }
+.card .legendName { display: block; font-size: 10.5px; font-weight: 650; line-height: 1.25; color: #244a33; letter-spacing: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .legendName b { font-weight: 700; font-variant-numeric: tabular-nums; }
+/* Admin dashboard: strict single 4-card top row at every width, and the cost row
+   reshaped to [Attendance | 5 totals]. */
+.adminRow:global(.dashboard-summary-row) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.adminRow > article:global(.card.cost-kpi) { grid-template-columns: minmax(0, 1fr) 170px; }
+.adminRow .card .legend { max-width: 170px; }
+.adminRow .card .legendName { font-size: 9.5px; }
+.adminRow :global(.cost-kpi.featured) > strong { font-size: clamp(24px, 2.2vw, 32px); letter-spacing: -0.8px; }
+.adminRow :global(.cost-kpi.featured) .riyal-money { white-space: nowrap; }
+/* Narrow admin top row: stack chart above a wrapped legend inside the KPI card. */
+@media (max-width: 1600px) {
+  .adminRow > article:global(.card.cost-kpi) { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto 1fr; }
+  .adminRow > article:global(.card.cost-kpi) .chart { grid-column: 1; grid-row: 2; height: 150px; min-height: 150px; }
+  .adminRow > article:global(.card.cost-kpi) .chart :global(.recharts-surface) { transform: none; }
+  .adminRow .card .legend { grid-column: 1; grid-row: 3; max-width: none; align-self: start; flex-flow: row wrap; column-gap: 16px; row-gap: 3px; align-content: flex-start; }
+}
+/* Full-width section so the 6-across cost row has room. */
+.adminCostsSection { display: block; }
+/* Admin side column: 5 cost totals + attendance chart as a 2-column grid, 2 cards per row.
+   Cards use the exact viewer-panel cost-card styling (fonts, sizes, icons) — no overrides.
+   Order: manpower, equipment, invoices, POs, fuel, attendance chart in the last cell. */
+.adminCostRow { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; align-items: stretch; }
+.adminCostRow > article:global(.cost-kpi) { align-content: start; gap: 4px; height: auto; min-height: 0; }
+.adminCostRow :global(.riyal-money) { white-space: nowrap !important; }
+/* Sixth cell is intentionally empty — reserved space, no card. */
