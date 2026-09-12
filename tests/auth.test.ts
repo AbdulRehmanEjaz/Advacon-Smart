@@ -26,6 +26,8 @@ await test('auth contract keeps private cookies, strict origins and credential v
   assert.doesNotMatch(source, /DATABASE_URL|Prisma|localStorage/);
   assert.match(source, /AUTH_BOOTSTRAP_CREDENTIAL_FAILED/);
   assert.match(source, /AUTH_SESSION_CREATE_FAILED/);
+  assert.match(source, /initial-viewer/);
+  assert.match(source, /VIEWER_PIN \?\? '000'/);
 });
 
 await test('credential path uses Worker-safe HMAC and contains no PBKDF2', async () => {
@@ -33,4 +35,17 @@ await test('credential path uses Worker-safe HMAC and contains no PBKDF2', async
   assert.match(source, /pin-credential:v1/);
   assert.match(source, /HMAC/);
   assert.doesNotMatch(source, /PBKDF2|deriveBits/);
+});
+
+await test('viewer role is added by a forward migration and seeded without plaintext PIN storage', async () => {
+  const [migration, baseline, envExample] = await Promise.all([
+    readFile(new URL('../d1/migrations/0008_viewer_role.sql', import.meta.url), 'utf8'),
+    readFile(new URL('../lib/server/d1-baseline.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../.env.example', import.meta.url), 'utf8'),
+  ]);
+  assert.match(migration, /CHECK \(role IN \('ADMIN', 'FOREMAN', 'VIEWER'\)\)/);
+  assert.match(migration, /initial-viewer/);
+  assert.doesNotMatch(migration, /pin_hash.*000|pin_salt.*000|pin_lookup.*000/);
+  assert.match(baseline, /initial-viewer/);
+  assert.match(envExample, /VIEWER_PIN=000/);
 });

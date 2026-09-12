@@ -49,6 +49,8 @@ async function handler(req: Request) {
       return reply({ ok: true }, 200, { 'Set-Cookie': cookie('', 0) });
     }
     const user = await userFor(req);
+    if (user.role === 'VIEWER' && (req.method !== 'GET' || path !== 'state'))
+      throw new HttpError(403, 'Viewer access is read-only and limited to approved pages.');
     if (path === 'finance.xlsx' && req.method === 'GET') {
       admin(user);
       const bytes = buildFinanceXlsx(await getStateDetail(user, 'cost-records') as unknown as State);
@@ -167,3 +169,6 @@ async function handler(req: Request) {
 }
 export const GET = handler;
 export const POST = GET;
+export const PUT = GET;
+export const PATCH = GET;
+export const DELETE = GET;

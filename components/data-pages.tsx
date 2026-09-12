@@ -14,7 +14,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge, Kpi, ActivityList, BlockReadinessOverview } from './dashboard';
 import { Editor, type Field, Modal, ProgressForm } from './progress-form';
-import { Supervisors } from './supervisors';
+import { Supervisors, ViewerAccess } from './supervisors';
+import { canAccessView } from '@/lib/domain/permissions';
 import { ApprovedKpiProgress } from './approved-kpi-progress';
 import { ResourcesPage, TimesheetPage } from './attendance';
 import { CostControlPage } from './cost-control';
@@ -53,6 +54,7 @@ export function DataPages(props: Props) {
   const { state, view, preview, refresh } = props;
   const [edit, setEdit] = useState<Edit | null>(null);
   const admin = state.user.role === 'ADMIN';
+  if (!canAccessView(state.user.role, view)) return <div className="notice">Access denied.</div>;
   const pkg = state.packages.find((p) => p.id === view);
   let content;
   if (['approvals', 'daily', 'search'].includes(view))
@@ -308,6 +310,8 @@ export function DataPages(props: Props) {
     );
   } else if (view === 'supervisors')
     content = <Supervisors state={state} refresh={refresh} preview={preview} />;
+  else if (view === 'viewers')
+    content = <ViewerAccess state={state} refresh={refresh} preview={preview} />;
   else if (view === 'schedule')
     content = <ProjectSchedule state={state} />;
   else if (view === 'settings') {

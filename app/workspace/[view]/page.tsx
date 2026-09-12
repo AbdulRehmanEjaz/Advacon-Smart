@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { userFor, HttpError } from '@/lib/server/auth';
 import { getState, serial } from '@/lib/server/service';
 import type { State } from '@/lib/types';
+import { canAccessView } from '@/lib/domain/permissions';
 export const dynamic = 'force-dynamic';
 export default async function Page({
   params,
@@ -18,7 +19,7 @@ export default async function Page({
     const user = await userFor(
       new Request('https://internal.invalid/', { headers: requestHeaders }),
     );
-    if (user.role !== 'ADMIN' && !['dashboard', 'daily'].includes(view))
+    if (!canAccessView(user.role, view))
       redirect('/workspace/dashboard');
     state = await getState(user, view);
   } catch (e) {

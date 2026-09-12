@@ -5,7 +5,7 @@ import type { FuelRecord, InvoicePoRecord } from './domain/costs';
 export type User = {
   id: string;
   name: string;
-  role: 'ADMIN' | 'FOREMAN';
+  role: 'ADMIN' | 'FOREMAN' | 'VIEWER';
   active: boolean;
   archivedAt: string | null;
   hasHistory?: boolean;

@@ -262,7 +262,7 @@ function AdminDashboard({
                         : ShieldCheck;
               return (
                 <a
-                  href={href(p.id === 'testing' ? 'quality' : p.id)}
+                  href={state.user.role === 'VIEWER' ? undefined : href(p.id === 'testing' ? 'quality' : p.id)}
                   className="package-row"
                   key={p.id}
                 >

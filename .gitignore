@@ -39,3 +39,7 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+# agent workspace and attachments
+.codex-remote-attachments/
+.freebuff/

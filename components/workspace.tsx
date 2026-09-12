@@ -36,6 +36,7 @@ import { type State, initials, post } from '@/lib/types';
 import { Dashboard } from './dashboard';
 import { DataPages } from './data-pages';
 import { ProgressForm } from './progress-form';
+import { canAccessView } from '@/lib/domain/permissions';
 type NavigationItem = [string, string, typeof TreePine];
 const topNavigation: NavigationItem[] = [
   ['dashboard', 'Dashboard', LayoutDashboard],
@@ -80,6 +81,7 @@ const groupedNavigation: {
     icon: Settings2,
     items: [
       ['supervisors', 'Supervisors', UsersRound],
+      ['viewers', 'Viewer Access', ShieldCheck],
       ['settings', 'Project Settings', Settings2],
       ['audit', 'Audit Log', History],
     ],
@@ -204,6 +206,7 @@ export function Workspace({
       : url.pathname.match(/^\/workspace\/([^/]+)$/)?.[1];
     if (!nextView) return;
     event.preventDefault();
+    if (state && !canAccessView(state.user.role, nextView)) return;
     setOpen(false);
     setQuery('');
     setActiveView(nextView);
@@ -219,7 +222,7 @@ export function Workspace({
       const pathView = preview
         ? new URL(window.location.href).searchParams.get('view')
         : window.location.pathname.split('/').filter(Boolean).at(-1);
-      if (pathView) {
+      if (pathView && (!state || canAccessView(state.user.role, pathView))) {
         setActiveView(pathView);
       }
     };
@@ -231,7 +234,7 @@ export function Workspace({
       document.removeEventListener('click', click);
     };
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- Navigation handler depends only on the stable preview mode.
-  }, [preview]);
+  }, [preview, state?.user.role]);
   useEffect(() => {
     const ctx = (
       document as Document & {
@@ -243,7 +246,7 @@ export function Workspace({
         };
       }
     ).modelContext;
-    if (!ctx || !state || preview) return;
+    if (!ctx || !state || preview || state.user.role === 'VIEWER') return;
     const lifecycle = new AbortController();
     const tool = {
       name: 'start_daily_progress',
@@ -301,10 +304,11 @@ export function Workspace({
       </main>
     );
   const isAdmin = state.user.role === 'ADMIN',
-    allowed = isAdmin || ['dashboard', 'daily'].includes(activeView),
+    isViewer = state.user.role === 'VIEWER',
+    allowed = canAccessView(state.user.role, activeView),
     pending = state.submissions.filter((s) => s.status === 'WAITING').length;
   const title =
-    !isAdmin && activeView === 'dashboard'
+    state.user.role === 'FOREMAN' && activeView === 'dashboard'
       ? 'Site Progress'
       : allNavigation.find((item) => item[0] === activeView)?.[1] ||
         'Page not found';
@@ -335,7 +339,7 @@ export function Workspace({
           ))}
           {groupedNavigation.map((group) => {
             const items = group.items.filter(
-              ([id]) => isAdmin || id === 'daily',
+              ([id]) => isAdmin || (!isViewer && id === 'daily'),
             );
             if (!items.length) return null;
             const expanded =
@@ -447,7 +451,7 @@ export function Workspace({
           >
             {open ? <X /> : <Menu />}
           </button>
-          <label className="search-wrap">
+          {!isViewer && <label className="search-wrap">
             <Search />
             <input
               aria-label="Search project data"
@@ -456,9 +460,9 @@ export function Workspace({
               onChange={(e) => setQuery(e.target.value)}
             />
             <kbd>⌕</kbd>
-          </label>
+          </label>}
           <div className="toolbar-right">
-            <a
+            {!isViewer && <><a
               className="icon-button"
               aria-label={`${pending} pending approvals`}
               href={href(isAdmin ? 'approvals' : 'daily')}
@@ -472,12 +476,12 @@ export function Workspace({
               href={href(isAdmin ? 'audit' : 'daily')}
             >
               <Bell />
-            </a>
+            </a></>}
             <div className="user-info">
               <span className="avatar">{initials(state.user.name)}</span>
               <div>
                 <strong>{state.user.name}</strong>
-                <small>{isAdmin ? 'Administrator' : 'Foreman'}</small>
+                <small>{isAdmin ? 'Administrator' : isViewer ? 'Viewer' : 'Foreman'}</small>
               </div>
             </div>
           </div>
@@ -498,14 +502,14 @@ export function Workspace({
                 aria-label={open ? 'Close navigation' : 'Open navigation'}
                 onClick={() => setOpen(!open)}
               >{open ? <X /> : <Menu />}</button>}
-              <Button
+              {!isViewer && <Button
                 className="primary"
                 disabled={preview}
                 onClick={() => setAdding(true)}
               >
                 <Plus size={15} />
                 {isAdmin ? 'Add Progress' : 'Add Daily Progress'}
-              </Button>
+              </Button>}
               {activeView === 'dashboard' && isAdmin && (
                 <a className="secondary dashboard-approval-shortcut"
                   href={href('approvals')}
@@ -554,7 +558,7 @@ export function Workspace({
             <div className="card empty-note">
               This page requires administrator access.
             </div>
-          ) : query && activeView !== 'dashboard' ? (
+          ) : query && activeView !== 'dashboard' && !isViewer ? (
             <DataPages
               state={state}
               view="search"
@@ -592,12 +596,12 @@ export function Workspace({
           </footer>
         </div>
       </section>
-      <ProgressForm
+      {!isViewer && <ProgressForm
         state={state}
         open={adding}
         onClose={() => setAdding(false)}
         onSaved={refresh}
-      />
+      />}
     </main>
   );
 }

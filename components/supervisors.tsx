@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { Plus, UsersRound } from 'lucide-react';
+import { Plus, ShieldCheck, UsersRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal } from './progress-form';
@@ -32,6 +32,7 @@ export function Supervisors({
   const [message, setMessage] = useState('');
   const users = (state.users || []).filter(
     (u) =>
+      u.role !== 'VIEWER' &&
       u.name.toLowerCase().includes(search.toLowerCase()) &&
       (!status || statusOf(u) === status) &&
       (!role || u.role === role),
@@ -236,14 +237,131 @@ export function Supervisors({
   );
 }
 
+export function ViewerAccess({
+  state,
+  refresh,
+  preview,
+}: {
+  state: State;
+  refresh: () => Promise<void>;
+  preview: boolean;
+}) {
+  const [selection, setSelection] = useState<Selection | null>(null);
+  const [message, setMessage] = useState('');
+  const viewers = (state.users || []).filter((u) => u.role === 'VIEWER');
+  if (state.user.role !== 'ADMIN')
+    return <div className="notice">Administrator access required.</div>;
+  return (
+    <section className="card supervisor-card">
+      <div className="card-heading">
+        <div>
+          <h2 className="card-title">Viewer Access</h2>
+          <p className="card-subtitle">
+            Read-only dashboard access for management review.
+          </p>
+        </div>
+        <Button
+          className="primary"
+          disabled={preview}
+          onClick={() => setSelection({ action: 'create' })}
+        >
+          <Plus size={16} />
+          Add Viewer
+        </Button>
+      </div>
+      {message && <output className="notice info">{message}</output>}
+      <table className="responsive-table supervisor-table">
+        <thead>
+          <tr>
+            {['Viewer', 'Status', 'Last login', 'Actions'].map((label) => (
+              <th key={label}>{label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {viewers.map((viewer) => (
+            <tr key={viewer.id}>
+              <td data-label="Viewer" aria-label={viewer.name}>
+                <div className="supervisor-identity">
+                  <span className="avatar">{initials(viewer.name)}</span>
+                  <span>
+                    <strong>{viewer.name}</strong>
+                    <small>{viewer.id}</small>
+                  </span>
+                </div>
+              </td>
+              <td data-label="Status" aria-label={statusOf(viewer)}>
+                <span
+                  className={`access-status ${viewer.active ? 'is-active' : ''}`}
+                >
+                  {statusOf(viewer)}
+                </span>
+              </td>
+              <td data-label="Last login">{timestamp(viewer.lastLogin)}</td>
+              <td data-label="Actions">
+                <select
+                  className="supervisor-actions"
+                  aria-label={`Actions for ${viewer.name}`}
+                  value=""
+                  onChange={(event) =>
+                    setSelection({
+                      action: event.target.value as Action,
+                      user: viewer,
+                    })
+                  }
+                >
+                  <option value="" disabled>
+                    Actions…
+                  </option>
+                  <option value="pin" disabled={preview}>
+                    Change PIN
+                  </option>
+                  <option value="status" disabled={preview}>
+                    {viewer.active ? 'Deactivate' : 'Reactivate'}
+                  </option>
+                </select>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {!viewers.length && (
+        <div className="empty-note">
+          <ShieldCheck size={24} />
+          <p>No viewer accounts yet.</p>
+        </div>
+      )}
+      <p className="card-subtitle">
+        Viewer accounts can open Dashboard, Approved KPI Progress and Cost
+        Control only. They cannot submit, approve, edit, archive or download
+        management reports.
+      </p>
+      {selection && (
+        <SupervisorEditor
+          selection={selection}
+          viewer
+          onClose={() => setSelection(null)}
+          onSaved={async (result) => {
+            setMessage(result);
+            setSelection(null);
+            await refresh();
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
 function SupervisorEditor({
   selection,
   onClose,
   onSaved,
+  viewer = false,
 }: {
   selection: Selection;
   onClose: () => void;
   onSaved: (message: string) => Promise<void>;
+  viewer?: boolean;
 }) {
   const { action, user } = selection;
   const [name, setName] = useState(user?.name || '');
@@ -273,7 +391,7 @@ function SupervisorEditor({
     }
     setBusy(true);
     try {
-      const result = await post('supervisor', {
+      const result = await post(viewer ? 'viewer' : 'supervisor', {
         action,
         id: user?.id,
         name,
@@ -300,7 +418,7 @@ function SupervisorEditor({
   }
   return (
     <Modal
-      title={title}
+      title={viewer ? title.replaceAll('Supervisor', 'Viewer') : title}
       description={
         user?.name || 'Create secure access for a member of your site team.'
       }

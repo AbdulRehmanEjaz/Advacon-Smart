@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { canAccessView } from '../domain/permissions';
+import { viewerState } from './viewer-state';
 import { admin, type Actor, HttpError } from './auth';
 import { database, first, id, json, now, statement } from './d1';
 import {
@@ -12,7 +14,7 @@ import {
   type Block,
 } from '../domain/calculations';
 import type { PackageDefinition, Settings } from '../domain/baseline';
-import type { Inspection, User } from '../types';
+import type { Inspection, State, User } from '../types';
 import { assertReviewable } from '../domain/workflow';
 import { supervisorAction } from './supervisors';
 import { createCredential } from './credentials';
@@ -236,7 +238,7 @@ function userFromRow(row: Row) {
   return {
     id: String(row.id),
     name: String(row.name),
-    role: row.role as 'ADMIN' | 'FOREMAN',
+    role: row.role as 'ADMIN' | 'FOREMAN' | 'VIEWER',
     active: bool(row.active),
     archivedAt: row.archivedAt == null ? null : String(row.archivedAt),
     defaultPin: bool(row.defaultPin),
@@ -380,11 +382,19 @@ async function details(view: string | undefined, user: Actor) {
 }
 
 export async function getState(user: Actor, view?: string) {
+  if (!canAccessView(user.role, view || 'dashboard')) throw new HttpError(403, 'This page is not available for your role.');
+  if (user.role === 'VIEWER') {
+    const core = await loadCore();
+    const financial = view === 'kpi-progress' ? {} : await costControlDetails();
+    return viewerState(serial<State>({ ...core, ...financial, user }));
+  }
   const core = await loadCore(user.role === 'FOREMAN' ? user.id : undefined);
   return { ...core, user, ...(await details(view, user)) };
 }
 
 export async function getStateDetail(user: Actor, view: string) {
+  if (!canAccessView(user.role, view)) throw new HttpError(403, 'This page is not available for your role.');
+  if (user.role === 'VIEWER') return getState(user, view);
   if (!['dashboard', 'audit', 'timesheet', 'resources', 'cost-control', 'cost-records'].includes(view)) return {};
   return details(view, user);
 }
@@ -564,6 +574,7 @@ async function activeUser(user: Actor) {
 }
 
 export async function mutate(path: string, req: Request, user: Actor) {
+  if (user.role === 'VIEWER') throw new HttpError(403, 'Viewer access is read-only.');
   if (Number(req.headers.get('content-length') || 0) > 8_000_000)
     throw new HttpError(413, 'Upload is too large.');
   const body: unknown = await req.json();
@@ -1013,7 +1024,7 @@ export async function mutate(path: string, req: Request, user: Actor) {
     return { id: adjustmentId };
   }
 
-  if (path === 'supervisor') {
+  if (path === 'supervisor' || path === 'viewer') {
     const data = supervisorAction.parse(body);
     const targetId = 'id' in data ? data.id : undefined;
     const before = targetId
@@ -1023,6 +1034,8 @@ export async function mutate(path: string, req: Request, user: Actor) {
         )
       : null;
     if (targetId && !before) throw new HttpError(404, 'Account not found.');
+    if (before && ((path === 'viewer' && before.role !== 'VIEWER') || (path === 'supervisor' && before.role === 'VIEWER')))
+      throw new HttpError(403, 'Use the correct account management page.');
     if (before?.role === 'ADMIN' && (before.id !== user.id || !['rename', 'pin'].includes(data.action)))
       throw new HttpError(403, 'Administrator accounts cannot be deactivated or deleted here.');
     let credential:
@@ -1044,9 +1057,10 @@ export async function mutate(path: string, req: Request, user: Actor) {
       writes.push(
         statement(
           `INSERT INTO users (id,name,role,pin_lookup,pin_salt,pin_hash,credential_version,active,created_at,updated_at)
-           VALUES (?,?,'FOREMAN',?,?,?,1,1,?,?)`,
+           VALUES (?,?,?,?,?,?,1,1,?,?)`,
           savedId,
           data.name,
+          path === 'viewer' ? 'VIEWER' : 'FOREMAN',
           credential!.pinLookup,
           credential!.pinSalt,
           credential!.pinHash,
@@ -1054,7 +1068,7 @@ export async function mutate(path: string, req: Request, user: Actor) {
           timestamp,
         ),
       );
-      action = 'SUPERVISOR_CREATED';
+      action = path === 'viewer' ? 'VIEWER_CREATED' : 'SUPERVISOR_CREATED';
     } else if (data.action === 'delete') {
       const history = await first<Row>(`SELECT 1 AS found WHERE
         EXISTS (SELECT 1 FROM daily_submissions WHERE supervisor_id=?) OR

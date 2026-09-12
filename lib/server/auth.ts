@@ -15,6 +15,7 @@ function authDiagnostic(code: string, error: unknown) {
     process.env.SESSION_SECRET,
     process.env.ADMIN_PIN,
     process.env.SUPERVISOR_PIN,
+    process.env.VIEWER_PIN,
   ])
     if (value) message = message.replaceAll(value, '[redacted]');
   message = message
@@ -39,7 +40,7 @@ export class HttpError extends Error {
   }
 }
 
-type Role = 'ADMIN' | 'FOREMAN';
+type Role = 'ADMIN' | 'FOREMAN' | 'VIEWER';
 type Identity = {
   id: string;
   name: string;
@@ -149,7 +150,7 @@ export async function verifySessionToken(token: string) {
     if (
       !claims.userId ||
       !claims.name ||
-      !['ADMIN', 'FOREMAN'].includes(String(claims.role)) ||
+      !['ADMIN', 'FOREMAN', 'VIEWER'].includes(String(claims.role)) ||
       !Number.isInteger(claims.credentialVersion) ||
       !Number.isSafeInteger(claims.expiration) ||
       Number(claims.expiration) <= Math.floor(Date.now() / 1000)
@@ -266,6 +267,7 @@ export async function login(pin: string, clientIdentifier = 'unknown') {
     const candidates = [
       { id: 'initial-admin', pin: process.env.ADMIN_PIN },
       { id: 'initial-foreman', pin: process.env.SUPERVISOR_PIN },
+      { id: 'initial-viewer', pin: process.env.VIEWER_PIN ?? '000' },
     ];
     const legacy = candidates.find(
       (candidate) => candidate.pin && /^\d{3}$/.test(candidate.pin) &&

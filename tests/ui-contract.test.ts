@@ -41,7 +41,10 @@ await test('sidebar starts collapsed with accessible links and keeps expanded gr
   assert.match(source, /hidden=\{!collapsed && !expanded\}/);
   assert.equal((source.match(/title=\{label\}/g) || []).length, 3);
   assert.equal((source.match(/aria-label=\{label\}/g) || []).length, 3);
-  assert.match(source, /isAdmin \|\| id === 'daily'/);
+  assert.match(source, /isAdmin \|\| \(!isViewer && id === 'daily'\)/);
+  assert.match(source, /state\.user\.role === 'VIEWER'/);
+  assert.match(source, /state\.user\.role === 'VIEWER'\) return/);
+  assert.match(source, /!isViewer && <ProgressForm/);
 });
 
 await test('sidebar contract includes attendance and resource management modules', async () => {
@@ -50,6 +53,7 @@ await test('sidebar contract includes attendance and resource management modules
   assert.match(source, /\['cost-control', 'Cost Control'/);
   assert.match(source, /\['timesheet', 'Timesheet & Attendance'/);
   assert.match(source, /\['resources', 'Manpower & Equipment'/);
+  assert.match(source, /\['viewers', 'Viewer Access'/);
   assert.match(source, /group: 'KPIs Management'/);
   assert.match(source, /group: 'Deliverables'/);
   assert.match(source, /group: 'Cost & Resources'/);
