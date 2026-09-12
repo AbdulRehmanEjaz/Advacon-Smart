@@ -181,6 +181,31 @@ function userSelect(where: string) {
     created_at AS createdAt,updated_at AS updatedAt FROM users WHERE ${where}`;
 }
 
+// Viewer accounts live in their own table so the users schema stays untouched.
+type ViewerAccountRow = Omit<UserRow, 'role'>;
+
+function viewerSelect(where: string) {
+  return `SELECT id,name,active,archived_at AS archivedAt,
+    pin_lookup AS pinLookup,pin_salt AS pinSalt,pin_hash AS pinHash,
+    credential_version AS credentialVersion,last_login AS lastLogin,
+    created_at AS createdAt,updated_at AS updatedAt FROM viewer_accounts WHERE ${where}`;
+}
+
+export function viewerUserRow(id: string) {
+  return first<ViewerAccountRow>(viewerSelect('id=?'), id)
+    .then((row) => (row ? { ...row, role: 'VIEWER' as Role } : undefined));
+}
+
+async function loginRowForLookup(pinLookup: string) {
+  const user = await authStage('AUTH_LOGIN_LOOKUP_FAILED', () =>
+    first<UserRow>(userSelect('pin_lookup=?'), pinLookup),
+  );
+  if (user) return user;
+  const viewer = await authStage('AUTH_LOGIN_LOOKUP_FAILED', () =>
+    first<ViewerAccountRow>(viewerSelect('pin_lookup=?'), pinLookup),
+  );
+  return viewer ? { ...viewer, role: 'VIEWER' as Role } : undefined;
+}
 function actorFromRow(row: UserRow): Actor {
   return {
     id: row.id,
@@ -201,7 +226,9 @@ export async function userFor(req: Request) {
     .find((value) => value.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1);
   if (!token) throw new HttpError(401, 'Please sign in to continue.');
   const claims = await verifySessionToken(token);
-  const row = await first<UserRow>(userSelect('id=?'), claims.id);
+  const row = claims.role === 'VIEWER'
+    ? await viewerUserRow(claims.id)
+    : await first<UserRow>(userSelect('id=?'), claims.id);
   if (
     !row ||
     !Number(row.active) ||
@@ -253,9 +280,7 @@ export async function login(pin: string, clientIdentifier = 'unknown') {
     return { error: true as const };
   }
   const pinLookup = await authStage('AUTH_LOGIN_LOOKUP_FAILED', () => lookup(pin));
-  let row = await authStage('AUTH_LOGIN_LOOKUP_FAILED', () =>
-    first<UserRow>(userSelect('pin_lookup=?'), pinLookup),
-  );
+  let row = await loginRowForLookup(pinLookup);
   let valid = Boolean(
     row?.pinSalt && row.pinHash &&
     await authStage('AUTH_CREDENTIAL_VERIFY_FAILED', () =>
@@ -265,18 +290,34 @@ export async function login(pin: string, clientIdentifier = 'unknown') {
 
   if (!valid) {
     const candidates = [
-      { id: 'initial-admin', pin: process.env.ADMIN_PIN },
-      { id: 'initial-foreman', pin: process.env.SUPERVISOR_PIN },
-      { id: 'initial-viewer', pin: process.env.VIEWER_PIN ?? '000' },
-    ];
+      { id: 'initial-admin', pin: process.env.ADMIN_PIN, table: 'users' },
+      { id: 'initial-foreman', pin: process.env.SUPERVISOR_PIN, table: 'users' },
+      { id: 'initial-viewer', pin: process.env.VIEWER_PIN ?? '000', table: 'viewer_accounts' },
+    ] as const;
     const legacy = candidates.find(
       (candidate) => candidate.pin && /^\d{3}$/.test(candidate.pin) &&
         constantTimeEqual(pin, candidate.pin),
     );
     if (legacy) {
-      const bootstrap = await authStage('AUTH_LOGIN_LOOKUP_FAILED', () =>
-        first<UserRow>(userSelect('id=?'), legacy.id),
-      );
+      const bootstrap = await authStage('AUTH_LOGIN_LOOKUP_FAILED', async () => {
+        const found = legacy.table === 'users'
+          ? await first<UserRow>(userSelect('id=?'), legacy.id)
+          : await viewerUserRow(legacy.id);
+        if (found || legacy.table !== 'viewer_accounts') return found ?? undefined;
+        // No viewer account exists yet: bootstrap the initial one on first login.
+        const timestamp = now();
+        await authStage('AUTH_BOOTSTRAP_CREDENTIAL_FAILED', () =>
+          statement(
+            `INSERT INTO viewer_accounts (id,name,active,created_at,updated_at)
+             VALUES (?,?,1,?,?)`,
+            legacy.id,
+            'Project Viewer',
+            timestamp,
+            timestamp,
+          ).run(),
+        );
+        return viewerUserRow(legacy.id);
+      });
       if (bootstrap && (!bootstrap.pinSalt || !bootstrap.pinHash)) {
         const credential = await authStage(
           'AUTH_BOOTSTRAP_CREDENTIAL_FAILED',
@@ -284,7 +325,7 @@ export async function login(pin: string, clientIdentifier = 'unknown') {
         );
         await authStage('AUTH_BOOTSTRAP_CREDENTIAL_FAILED', () =>
           statement(
-            `UPDATE users SET pin_lookup=?,pin_salt=?,pin_hash=?,
+            `UPDATE ${legacy.table} SET pin_lookup=?,pin_salt=?,pin_hash=?,
              credential_version=credential_version+1,updated_at=?
              WHERE id=? AND (pin_salt IS NULL OR pin_hash IS NULL)`,
             credential.pinLookup,
@@ -294,9 +335,12 @@ export async function login(pin: string, clientIdentifier = 'unknown') {
             bootstrap.id,
           ).run(),
         );
-        row = await authStage('AUTH_LOGIN_LOOKUP_FAILED', () =>
-          first<UserRow>(userSelect('id=?'), bootstrap.id),
-        );
+        row = await authStage('AUTH_LOGIN_LOOKUP_FAILED', async () => {
+          const found = legacy.table === 'users'
+            ? await first<UserRow>(userSelect('id=?'), bootstrap.id)
+            : await viewerUserRow(bootstrap.id);
+          return found ?? undefined;
+        });
         valid = Boolean(
           row?.pinSalt && row.pinHash &&
           await authStage('AUTH_CREDENTIAL_VERIFY_FAILED', () =>
@@ -313,7 +357,9 @@ export async function login(pin: string, clientIdentifier = 'unknown') {
   }
   const timestamp = now();
   await database().batch([
-    statement('UPDATE users SET last_login=? WHERE id=?', timestamp, row.id),
+    row.role === 'VIEWER'
+      ? statement('UPDATE viewer_accounts SET last_login=? WHERE id=?', timestamp, row.id)
+      : statement('UPDATE users SET last_login=? WHERE id=?', timestamp, row.id),
     statement('DELETE FROM login_attempts WHERE identifier=?', rateKey),
   ]);
   row.lastLogin = timestamp;

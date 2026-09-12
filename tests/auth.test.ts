@@ -37,15 +37,19 @@ await test('credential path uses Worker-safe HMAC and contains no PBKDF2', async
   assert.doesNotMatch(source, /PBKDF2|deriveBits/);
 });
 
-await test('viewer role is added by a forward migration and seeded without plaintext PIN storage', async () => {
-  const [migration, baseline, envExample] = await Promise.all([
-    readFile(new URL('../d1/migrations/0008_viewer_role.sql', import.meta.url), 'utf8'),
+await test('viewer accounts use a dedicated table and never rebuild the users table', async () => {
+  const [migration, baseline, envExample, initial] = await Promise.all([
+    readFile(new URL('../d1/migrations/0008_viewer_accounts.sql', import.meta.url), 'utf8'),
     readFile(new URL('../lib/server/d1-baseline.ts', import.meta.url), 'utf8'),
     readFile(new URL('../.env.example', import.meta.url), 'utf8'),
+    readFile(new URL('../d1/migrations/0001_initial.sql', import.meta.url), 'utf8'),
   ]);
-  assert.match(migration, /CHECK \(role IN \('ADMIN', 'FOREMAN', 'VIEWER'\)\)/);
-  assert.match(migration, /initial-viewer/);
-  assert.doesNotMatch(migration, /pin_hash.*000|pin_salt.*000|pin_lookup.*000/);
-  assert.match(baseline, /initial-viewer/);
+  assert.match(migration, /CREATE TABLE viewer_accounts/);
+  assert.match(migration, /pin_salt TEXT/);
+  assert.match(migration, /pin_hash TEXT/);
+  assert.match(migration, /credential_version INTEGER NOT NULL DEFAULT 0/);
+  assert.doesNotMatch(migration, /DROP TABLE users|INSERT INTO users|ALTER TABLE users/i);
+  assert.match(initial, /CHECK \(role IN \('ADMIN', 'FOREMAN'\)\)/);
+  assert.doesNotMatch(baseline, /initial-viewer/);
   assert.match(envExample, /VIEWER_PIN=000/);
 });

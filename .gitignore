@@ -43,3 +43,7 @@ next-env.d.ts
 # agent workspace and attachments
 .codex-remote-attachments/
 .freebuff/
+
+# local dev server and scratch migration-test state
+.dev-server.log
+.migration-test-state/

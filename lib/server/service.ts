@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { canAccessView } from '../domain/permissions';
 import { viewerState } from './viewer-state';
-import { admin, type Actor, HttpError } from './auth';
+import { admin, viewerUserRow, type Actor, HttpError } from './auth';
+import { createCredential } from './credentials';
 import { database, first, id, json, now, statement } from './d1';
 import {
   approvedTotals,
@@ -17,7 +18,7 @@ import type { PackageDefinition, Settings } from '../domain/baseline';
 import type { Inspection, State, User } from '../types';
 import { assertReviewable } from '../domain/workflow';
 import { supervisorAction } from './supervisors';
-import { createCredential } from './credentials';
+import { viewerAction, viewerFromRow, viewerSelect } from './viewers';
 import { riyadhDate } from '../domain/date';
 import {
   ATTENDANCE_STATUSES,
@@ -111,6 +112,8 @@ async function loadCore(supervisorId?: string): Promise<Core> {
       CASE WHEN pin_hash IS NULL THEN 1 ELSE 0 END AS defaultPin,
       last_login AS lastLogin,created_at AS createdAt,updated_at AS updatedAt
       FROM users ORDER BY role,name`),
+    db.prepare(`SELECT ${viewerSelect},'VIEWER' AS role
+      FROM viewer_accounts ORDER BY name`),
     db.prepare(`SELECT id FROM users u WHERE
       EXISTS (SELECT 1 FROM daily_submissions WHERE supervisor_id=u.id) OR
       EXISTS (SELECT 1 FROM approvals WHERE reviewer_id=u.id) OR
@@ -223,9 +226,11 @@ async function loadCore(supervisorId?: string): Promise<Core> {
       capacity: Number(zone.capacity),
       spacing: String(zone.spacing),
     })),
-    users: supervisorId ? [] : usersFromRows(rows[10], rows[11]),
-    inspections: supervisorId ? [] : inspectionsFromRows(rows[12], rows[13]),
-    openingBalances: rows[14].map((entry) => ({
+    users: supervisorId
+      ? []
+      : usersFromRows(rows[10], rows[12], rows[11]),
+    inspections: supervisorId ? [] : inspectionsFromRows(rows[13], rows[14]),
+    openingBalances: rows[15].map((entry) => ({
       activityId: String(entry.activityId),
       quantity: Number(entry.quantity),
       source: String(entry.source),
@@ -238,7 +243,7 @@ function userFromRow(row: Row) {
   return {
     id: String(row.id),
     name: String(row.name),
-    role: row.role as 'ADMIN' | 'FOREMAN' | 'VIEWER',
+    role: row.role as 'ADMIN' | 'FOREMAN',
     active: bool(row.active),
     archivedAt: row.archivedAt == null ? null : String(row.archivedAt),
     defaultPin: bool(row.defaultPin),
@@ -248,14 +253,17 @@ function userFromRow(row: Row) {
   };
 }
 
-function usersFromRows(userRows: Row[], historyRows: Row[]) {
+function usersFromRows(userRows: Row[], historyRows: Row[], viewerRows: Row[]) {
   const historyIds = new Set(
     historyRows.map((row) => String(row.id)),
   );
-  return userRows.map((row) => ({
-    ...userFromRow(row),
-    hasHistory: historyIds.has(String(row.id)),
-  }));
+  return [
+    ...userRows.map((row) => ({
+      ...userFromRow(row),
+      hasHistory: historyIds.has(String(row.id)),
+    })),
+    ...viewerRows.map((row) => viewerFromRow(row)),
+  ];
 }
 
 function inspectionsFromRows(inspectionRows: Row[], observationRows: Row[]) {
@@ -562,11 +570,17 @@ function auditStatement(
 }
 
 async function activeUser(user: Actor) {
-  const row = await first<Row>(
-    `SELECT id,name,role,active,archived_at AS archivedAt,created_at AS createdAt,
-     credential_version AS credentialVersion,updated_at AS updatedAt FROM users WHERE id=?`,
-    user.id,
-  );
+  const row = user.role === 'VIEWER'
+    ? await first<Row>(
+        `SELECT id,name,role,active,archived_at AS archivedAt,created_at AS createdAt,
+         credential_version AS credentialVersion,updated_at AS updatedAt FROM viewer_accounts WHERE id=?`,
+        user.id,
+      )
+    : await first<Row>(
+        `SELECT id,name,role,active,archived_at AS archivedAt,created_at AS createdAt,
+         credential_version AS credentialVersion,updated_at AS updatedAt FROM users WHERE id=?`,
+        user.id,
+      );
   if (!row || !bool(row.active) || row.archivedAt || row.role !== user.role ||
       Number(row.credentialVersion) !== user.credentialVersion)
     throw new HttpError(403, 'Your access has changed. Please sign in again.');
@@ -1024,7 +1038,76 @@ export async function mutate(path: string, req: Request, user: Actor) {
     return { id: adjustmentId };
   }
 
-  if (path === 'supervisor' || path === 'viewer') {
+  if (path === 'viewer') {
+    const data = viewerAction.parse(body);
+    const targetId = 'id' in data ? data.id : undefined;
+    const before = targetId
+      ? await first<Row>(
+          `SELECT id,name,active,archived_at AS archivedAt,created_at AS createdAt,updated_at AS updatedAt FROM viewer_accounts WHERE id=?`,
+          targetId,
+        )
+      : null;
+    if (targetId && !before) throw new HttpError(404, 'Account not found.');
+    let credential:
+      | { pinLookup: string; pinSalt: string; pinHash: string }
+      | undefined;
+    if ('pin' in data) {
+      credential = await createCredential(data.pin);
+      const pinDuplicate = await first<Row>(
+        'SELECT id FROM viewer_accounts WHERE pin_lookup=?',
+        credential.pinLookup,
+      );
+      const userPinDuplicate = await first<Row>(
+        'SELECT id FROM users WHERE pin_lookup=?',
+        credential.pinLookup,
+      );
+      if ((pinDuplicate && pinDuplicate.id !== targetId) || userPinDuplicate)
+        throw new HttpError(409, 'That PIN is already reserved. Choose a different PIN.');
+    }
+    const viewerTimestamp = now();
+    let viewerSavedId = targetId;
+    let viewerOutcome: 'saved' | 'deleted' = 'saved';
+    let viewerActionName = '';
+    const viewerWrites: D1PreparedStatement[] = [];
+    if (data.action === 'create') {
+      viewerSavedId = id();
+      viewerWrites.push(
+        statement(
+          `INSERT INTO viewer_accounts (id,name,pin_lookup,pin_salt,pin_hash,credential_version,active,created_at,updated_at)
+           VALUES (?,?,?,?,?,1,1,?,?)`,
+          viewerSavedId,
+          data.name,
+          credential!.pinLookup,
+          credential!.pinSalt,
+          credential!.pinHash,
+          viewerTimestamp,
+          viewerTimestamp,
+        ),
+      );
+      viewerActionName = 'VIEWER_CREATED';
+    } else if (data.action === 'delete') {
+      viewerWrites.push(statement('DELETE FROM viewer_accounts WHERE id=?', data.id));
+      viewerOutcome = 'deleted';
+      viewerActionName = 'VIEWER_DELETED';
+    } else if (data.action === 'rename') {
+      viewerWrites.push(statement('UPDATE viewer_accounts SET name=?,updated_at=? WHERE id=?', data.name,viewerTimestamp,data.id));
+      viewerActionName = 'VIEWER_RENAMED';
+    } else if (data.action === 'pin') {
+      viewerWrites.push(statement(
+        'UPDATE viewer_accounts SET pin_lookup=?,pin_salt=?,pin_hash=?,credential_version=credential_version+1,updated_at=? WHERE id=?',
+        credential!.pinLookup,credential!.pinSalt,credential!.pinHash,viewerTimestamp,data.id,
+      ));
+      viewerActionName = 'VIEWER_PIN_CHANGED';
+    } else {
+      viewerWrites.push(statement('UPDATE viewer_accounts SET active=?,archived_at=?,credential_version=credential_version+1,updated_at=? WHERE id=?', Number(data.active),data.active ? null : before!.archivedAt,viewerTimestamp,data.id));
+      viewerActionName = data.active ? 'VIEWER_ACTIVATED' : 'VIEWER_DEACTIVATED';
+    }
+    viewerWrites.push(auditStatement(user, viewerActionName, 'User', viewerSavedId, before, { action: data.action, outcome: viewerOutcome }));
+    await database().batch(viewerWrites);
+    return { id: viewerSavedId!, outcome: viewerOutcome };
+  }
+
+  if (path === 'supervisor') {
     const data = supervisorAction.parse(body);
     const targetId = 'id' in data ? data.id : undefined;
     const before = targetId
@@ -1034,8 +1117,6 @@ export async function mutate(path: string, req: Request, user: Actor) {
         )
       : null;
     if (targetId && !before) throw new HttpError(404, 'Account not found.');
-    if (before && ((path === 'viewer' && before.role !== 'VIEWER') || (path === 'supervisor' && before.role === 'VIEWER')))
-      throw new HttpError(403, 'Use the correct account management page.');
     if (before?.role === 'ADMIN' && (before.id !== user.id || !['rename', 'pin'].includes(data.action)))
       throw new HttpError(403, 'Administrator accounts cannot be deactivated or deleted here.');
     let credential:
@@ -1044,7 +1125,8 @@ export async function mutate(path: string, req: Request, user: Actor) {
     if ('pin' in data) {
       credential = await createCredential(data.pin);
       const duplicate = await first<Row>('SELECT id FROM users WHERE pin_lookup=?', credential.pinLookup);
-      if (duplicate && duplicate.id !== targetId)
+      const viewerDuplicate = await first<Row>('SELECT id FROM viewer_accounts WHERE pin_lookup=?', credential.pinLookup);
+      if ((duplicate && duplicate.id !== targetId) || viewerDuplicate)
         throw new HttpError(409, 'That PIN is already reserved. Choose a different PIN.');
     }
     const timestamp = now();
@@ -1057,10 +1139,9 @@ export async function mutate(path: string, req: Request, user: Actor) {
       writes.push(
         statement(
           `INSERT INTO users (id,name,role,pin_lookup,pin_salt,pin_hash,credential_version,active,created_at,updated_at)
-           VALUES (?,?,?,?,?,?,1,1,?,?)`,
+           VALUES (?,?,'FOREMAN',?,?,?,?,1,1,?,?)`,
           savedId,
           data.name,
-          path === 'viewer' ? 'VIEWER' : 'FOREMAN',
           credential!.pinLookup,
           credential!.pinSalt,
           credential!.pinHash,
@@ -1068,7 +1149,7 @@ export async function mutate(path: string, req: Request, user: Actor) {
           timestamp,
         ),
       );
-      action = path === 'viewer' ? 'VIEWER_CREATED' : 'SUPERVISOR_CREATED';
+      action = 'SUPERVISOR_CREATED';
     } else if (data.action === 'delete') {
       const history = await first<Row>(`SELECT 1 AS found WHERE
         EXISTS (SELECT 1 FROM daily_submissions WHERE supervisor_id=?) OR
