@@ -35,12 +35,12 @@ export function buildFinanceXlsx(state: Pick<State, 'fuelRecords' | 'invoicePoRe
   const sheets = [
     { name: 'Fuel Details', records: state.fuelRecords || [], kind: 'FUEL' },
     { name: 'POs Details', records: (state.invoicePoRecords || []).filter((r) => r.recordType === 'PO'), kind: 'PO' },
-    { name: 'Invoices Details', records: (state.invoicePoRecords || []).filter((r) => r.recordType === 'INVOICE'), kind: 'INVOICE' },
+    { name: 'Petty Cash Details', records: (state.invoicePoRecords || []).filter((r) => r.recordType === 'INVOICE'), kind: 'INVOICE' },
   ];
   const files: Record<string, Uint8Array> = {};
   sheets.forEach(({ name, records, kind }, index) => {
     const fuel = kind === 'FUEL';
-    const headers = ['Date', 'VAT Status', ...(fuel ? ['Fuel Type', 'Quantity (litres)'] : ['Invoice No.', ...(kind === 'PO' ? ['PO No.'] : [])]), 'Amount (SAR)', ...(!fuel ? ['Paid By'] : []), 'Description', 'VAT Amount (SAR)', 'Amount Without VAT (SAR)', 'Final / Total Amount (SAR)', 'Record Status'];
+    const headers = ['Date', 'VAT Status', ...(fuel ? ['Fuel Type', 'Quantity (litres)'] : ['Petty Cash No.', ...(kind === 'PO' ? ['PO No.'] : [])]), 'Amount (SAR)', ...(!fuel ? ['Paid By'] : []), 'Description', 'VAT Amount (SAR)', 'Amount Without VAT (SAR)', 'Final / Total Amount (SAR)', 'Record Status'];
     const widths = headers.map((header) => header === 'Description' ? 55 : header === 'Paid By' ? 25 : header.includes('Amount') ? 24 : 20);
     const last = column(headers.length);
     const rows = [row(1, [inline('A1', `Tree Translocation Project - 336-A | ${name}`, 1)], 28), row(2, [inline('A2', 'All saved records. Archived records are identified and excluded from project totals.', 0)], 24), row(4, headers.map((h, i) => inline(`${column(i + 1)}4`, h, 2)), 34)];

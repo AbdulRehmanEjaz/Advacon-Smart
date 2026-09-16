@@ -77,7 +77,7 @@ await test('cost control uses live resource data, explicit VAT messaging and off
   assert.match(source, /costSummary\(\{ throughDate,/);
   assert.match(source, /Total Recorded Project Cost — Including VAT/);
   assert.match(source, /Total Including VAT/);
-  assert.match(source, /Invoices Total/);
+  assert.match(source, /Petty Cash Total/);
   assert.match(source, /POs Total/);
   assert.match(source, /kind="INVOICE"/);
   assert.match(source, /kind="PO"/);

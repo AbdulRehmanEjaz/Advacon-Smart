@@ -63,7 +63,7 @@ function FuelEditor({ item, onClose, onSaved }: { item?: FuelRecord; onClose: ()
 }
 
 function CostDocumentEditor({ kind, item, onClose, onSaved }: { kind: CostDocumentType; item?: InvoicePoRecord; onClose: () => void; onSaved: () => Promise<void> }) {
-  const label = kind === 'PO' ? 'PO' : 'Invoice';
+  const label = kind === 'PO' ? 'PO' : 'Petty Cash';
   const [date, setDate] = useState(item?.date || riyadhDate());
   const [vatStatus, setVatStatus] = useState<VatStatus>(item?.vatStatus || 'NON_VAT');
   const [invoiceNo, setInvoiceNo] = useState(item?.invoiceNo || '');
@@ -85,7 +85,7 @@ function CostDocumentEditor({ kind, item, onClose, onSaved }: { kind: CostDocume
     <form onSubmit={save}><div className="form-grid">
       <label className="field">Date<input required type="date" max={riyadhDate()} value={date} onChange={(event) => setDate(event.target.value)} /></label>
       <label className="field">VAT Status<select value={vatStatus} onChange={(event) => setVatStatus(event.target.value as VatStatus)}><option value="NON_VAT">Non-VAT</option><option value="VAT_INCLUDED">VAT Included</option></select></label>
-      <label className="field">Invoice No.<input required maxLength={100} value={invoiceNo} onChange={(event) => setInvoiceNo(event.target.value)} /></label>
+      <label className="field">Petty Cash No.<input required maxLength={100} value={invoiceNo} onChange={(event) => setInvoiceNo(event.target.value)} /></label>
       {kind === 'PO' && <label className="field">PO No.<input required maxLength={100} value={poNo} onChange={(event) => setPoNo(event.target.value)} /></label>}
       <label className="field">Amount (SAR)<input required inputMode="decimal" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
       <label className="field">Paid By<input required maxLength={150} value={paidBy} onChange={(event) => setPaidBy(event.target.value)} /></label>
@@ -96,10 +96,10 @@ function CostDocumentEditor({ kind, item, onClose, onSaved }: { kind: CostDocume
 }
 
 function DocumentSection({ kind, items, subtotal, preview, onAdd, onEdit, onArchive }: { kind: CostDocumentType; items: InvoicePoRecord[]; subtotal: number; preview: boolean; onAdd: () => void; onEdit: (item: InvoicePoRecord) => void; onArchive: (id: string) => void }) {
-  const plural = kind === 'PO' ? 'POs' : 'Invoices';
-  return <FinanceSection title={plural} count={items.length} subtotal={subtotal} addButton={<Button className="primary" disabled={preview} onClick={onAdd}><Plus size={14} /> Add {kind === 'PO' ? 'PO' : 'Invoice'}</Button>}>
+  const plural = kind === 'PO' ? 'POs' : 'Petty Cash';
+  return <FinanceSection title={plural} count={items.length} subtotal={subtotal} addButton={<Button className="primary" disabled={preview} onClick={onAdd}><Plus size={14} /> Add {kind === 'PO' ? 'PO' : 'Petty Cash'}</Button>}>
     {!items.length ? <p className="cost-empty">No {plural.toLowerCase()} recorded through today.</p> : <div className="cost-records">{items.map((item) => <article key={item.id}>
-      <div><strong>Invoice {item.invoiceNo || 'Legacy record'}{kind === 'PO' && ` · PO ${item.poNo || 'Legacy record'}`}</strong><small>{item.date} · {item.vatStatus === 'VAT_INCLUDED' ? 'VAT Included' : 'Non-VAT'}{item.paidBy ? ` · Paid by ${item.paidBy}` : ''}{item.description ? ` · ${item.description}` : ''}</small></div>
+      <div><strong>{kind === 'PO' ? `PO ${item.poNo || 'Legacy record'}` : `Petty Cash ${item.invoiceNo || 'Legacy record'}`}</strong><small>{item.date} · {item.vatStatus === 'VAT_INCLUDED' ? 'VAT Included' : 'Non-VAT'}{item.paidBy ? ` · Paid by ${item.paidBy}` : ''}{item.description ? ` · ${item.description}` : ''}</small></div>
       <RecordCost item={item} />
       <div className="inline-actions"><button className="text-button" onClick={() => onEdit(item)}><Pencil size={12} /> Edit</button><button className="text-button danger" onClick={() => onArchive(item.id)}><Trash2 size={12} /> Archive</button></div>
     </article>)}</div>}
@@ -147,7 +147,7 @@ export function CostControlPage({ state, refresh, preview, management = false }:
     {poEditor && <CostDocumentEditor kind="PO" item={poEditor === 'new' ? undefined : poEditor} onClose={() => setPoEditor(null)} onSaved={refresh} />}
   </div>;
   return <div className="cost-page">
-    <section className="card cost-hero"><div><span className="eyebrow">FINANCIAL CONTROL</span><h2>Total Recorded Project Cost — Including VAT</h2><p>Live attendance-derived costs plus recorded Fuel, Invoice and PO amounts including VAT.</p></div></section>
+    <section className="card cost-hero"><div><span className="eyebrow">FINANCIAL CONTROL</span><h2>Total Recorded Project Cost — Including VAT</h2><p>Live attendance-derived costs plus recorded Fuel, Petty Cash and PO amounts including VAT.</p></div></section>
     {error && <div className="notice" role="alert">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
     <CostKpiCards state={state} />
     <div className="cost-chart-grid">
@@ -155,7 +155,7 @@ export function CostControlPage({ state, refresh, preview, management = false }:
       <section className="card cost-chart wide"><div className="card-heading"><div><h3>Monthly Cost Trend</h3><p>Monthly history from the first project record</p></div></div><ResponsiveContainer width="100%" height={250}><AreaChart data={trend}><defs><linearGradient id="costFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#087443" stopOpacity={0.28} /><stop offset="1" stopColor="#087443" stopOpacity={0.02} /></linearGradient></defs><CartesianGrid vertical={false} stroke="#edf1ee" /><XAxis dataKey="month" axisLine={false} tickLine={false} /><YAxis hide /><Tooltip content={<CostTooltip />} /><Area type="monotone" dataKey="value" name="Project cost" stroke="#087443" strokeWidth={3} fill="url(#costFill)" /></AreaChart></ResponsiveContainer></section>
     </div>
     <section className="card cost-section"><div className="card-heading"><div><h3>Equipment Cost Analysis</h3><p>Live equipment attendance and configured daily rates</p></div><strong><Money value={summary.costs.equipment.grossHalalas} /></strong></div>{!summary.equipment.length ? <p className="cost-empty">No equipment records are available.</p> : <><ResponsiveContainer width="100%" height={220}><BarChart data={summary.equipment.map((row) => ({ name: row.resource.name, company: row.resource.company, value: inclusiveCost(row.totalHalalas, 'NON_VAT').grossHalalas }))}><CartesianGrid vertical={false} stroke="#edf1ee" /><XAxis dataKey="name" axisLine={false} tickLine={false} /><YAxis hide /><Tooltip content={<CostTooltip />} /><Bar dataKey="value" fill="#2f9b67" radius={[8, 8, 0, 0]} /></BarChart></ResponsiveContainer><div className="table-scroll"><table className="responsive-table"><thead><tr><th>Equipment</th><th>Rental Company</th><th>Project-to-date Total</th></tr></thead><tbody>{summary.equipment.map((row) => <tr key={row.resource.id}><td data-label="Equipment"><strong>{row.resource.name}</strong></td><td data-label="Rental Company">{row.resource.company}</td><td data-label="Project-to-date Total"><Money value={inclusiveCost(row.totalHalalas, 'NON_VAT').grossHalalas} /></td></tr>)}</tbody><tfoot><tr><th colSpan={2}>Equipment Total</th><th><Money value={summary.costs.equipment.grossHalalas} /></th></tr></tfoot></table></div></>}</section>
-    <section className="card cost-summary-card"><div><Droplets /><span>Project-to-date formula</span><strong>Manpower Gross + Equipment Gross + Fuel Gross + Invoices Gross + POs Gross</strong></div><strong><Money value={summary.totalHalalas} /></strong></section>
+    <section className="card cost-summary-card"><div><Droplets /><span>Project-to-date formula</span><strong>Manpower Gross + Equipment Gross + Fuel Gross + Petty Cash Gross + POs Gross</strong></div><strong><Money value={summary.totalHalalas} /></strong></section>
 
   </div>;
 }
@@ -168,7 +168,7 @@ export function CostKpiCards({ state, dashboard = false, selection = 'all', href
     { label: 'Manpower Total', value: summary.costs.manpower, Icon: UsersRound },
     { label: 'Equipment Total', value: summary.costs.equipment, Icon: Wrench },
     { label: 'Fuel Total', value: summary.costs.fuel, Icon: Fuel },
-    { label: 'Invoices Total', value: summary.costs.invoices, Icon: ReceiptText },
+    { label: 'Petty Cash Total', value: summary.costs.invoices, Icon: ReceiptText },
     { label: 'POs Total', value: summary.costs.pos, Icon: FileCheck2 },
   ];
   const dashboardCategories = dashboard && selection === 'categories';
@@ -215,7 +215,7 @@ export function CostComposition({ state, compact = false }: { state: State; comp
     { name: 'Manpower', value: summary.costs.manpower.grossHalalas, fill: COLORS[0] },
     { name: 'Equipment', value: summary.costs.equipment.grossHalalas, fill: COLORS[1] },
     { name: 'Fuel', value: summary.costs.fuel.grossHalalas, fill: COLORS[2] },
-    { name: 'Invoices', value: summary.costs.invoices.grossHalalas, fill: COLORS[3] },
+    { name: 'Petty Cash', value: summary.costs.invoices.grossHalalas, fill: COLORS[3] },
     { name: 'POs', value: summary.costs.pos.grossHalalas, fill: COLORS[4] },
   ];
 

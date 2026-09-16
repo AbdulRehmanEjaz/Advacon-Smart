@@ -71,7 +71,7 @@ const groupedNavigation: {
     icon: WalletCards,
     items: [
       ['cost-control', 'Cost Control', WalletCards],
-      ['cost-records', 'Fuel, POs & Invoices', Droplets],
+      ['cost-records', 'Fuel, POs & Petty Cash', Droplets],
       ['resources', 'Manpower & Equipment', HardHat],
       ['timesheet', 'Timesheet & Attendance', Clock3],
     ],

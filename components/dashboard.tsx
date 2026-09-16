@@ -227,7 +227,8 @@ function AdminDashboard({
         <CostComposition state={state} compact />
       </div>
       <ProgressComparisonCard state={state} compact />
-      <div className="dashboard-primary-grid">
+      {/* Viewer scope: nothing below Planned vs Current Progress is rendered for viewers. */}
+      {!isViewer && <div className="dashboard-primary-grid">
         <div className="dashboard-primary-main">
           {isViewer && (
             <section className="dashboard-costs">
@@ -300,7 +301,7 @@ function AdminDashboard({
             </section>
           )}
         </div>
-      </div>
+      </div>}
     </>
   );
 }

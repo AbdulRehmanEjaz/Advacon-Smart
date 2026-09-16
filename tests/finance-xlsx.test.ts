@@ -10,7 +10,7 @@ void test('finance export has exactly three styled sheets, typed amounts and all
   const files = unzipSync(buildFinanceXlsx({ invoicePoRecords: [record, { ...record, id: '2', recordType: 'INVOICE', vatStatus: 'VAT_INCLUDED', enteredAmountHalalas: 57500, active: false }], fuelRecords: [{ id: '3', date: record.date, fuelType: 'DIESEL', quantityMillilitres: 125375, vatStatus: 'NON_VAT', enteredAmountHalalas: 50000, netAmountHalalas: 50000, vatRemovedHalalas: 0, description: 'Fuel', active: true, createdAt: '', updatedAt: '' }] }));
   const read = (path: string) => strFromU8(files[path]);
   assert.equal(Object.keys(files).filter((name) => name.startsWith('xl/worksheets/')).length, 3);
-  assert.match(read('xl/workbook.xml'), /name="Fuel Details".*name="POs Details".*name="Invoices Details"/);
+  assert.match(read('xl/workbook.xml'), /name="Fuel Details".*name="POs Details".*name="Petty Cash Details"/);
   const po = read('xl/worksheets/sheet2.xml');
   const invoice = read('xl/worksheets/sheet3.xml');
   const fuel = read('xl/worksheets/sheet1.xml');
