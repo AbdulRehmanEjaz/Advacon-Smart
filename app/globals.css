@@ -785,6 +785,10 @@ h1 {
   grid-column: 1;
   grid-row: 1;
 }
+/* Tab layout: the packages card is alone in its grid, so it uses the full width. */
+.kpi-packages-grid .packages-card {
+  grid-column: 1 / -1;
+}
 .main-activity-dashboard {
   grid-column: 2;
   grid-row: 1;

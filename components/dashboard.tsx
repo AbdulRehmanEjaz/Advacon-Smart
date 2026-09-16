@@ -90,6 +90,59 @@ function ProgressGauge({ value, remaining, href }: { value: number; remaining: n
     </article>
   );
 }
+// Shared packages card: dashboard side column and the Approved KPI Progress tab.
+export function WorkPackagesCard({
+  state,
+  href,
+  calculated,
+}: {
+  state: State;
+  href?: (v: string) => string;
+  calculated: ReturnType<typeof calculateKpiProgress>;
+}) {
+  return (
+    <article className="card packages-card">
+      <div className="card-heading">
+        <h2 className="card-title">Work Packages</h2>
+        <Leaf size={16} color="#639374" />
+      </div>
+      {calculated.work.map((p) => {
+        const Icon =
+          p.id === 'irrigation'
+            ? Droplets
+            : p.id === 'support'
+              ? Fence
+              : p.id === 'translocation'
+                ? Trees
+                : p.id === 'new-trees'
+                  ? Sprout
+                  : ShieldCheck;
+        const link = href?.(p.id === 'testing' ? 'quality' : p.id);
+        return (
+          <a
+            href={state.user.role === 'VIEWER' ? undefined : link}
+            className="package-row"
+            key={p.id}
+          >
+            <span className="package-icon">
+              <Icon />
+            </span>
+            <div className="package-meta">
+              <strong>{p.name}</strong>
+              <div className="progress-track">
+                <span style={{ width: `${p.progress}%` }} />
+              </div>
+              <small>
+                {p.earned.toFixed(2)}% earned · {p.weight}% weight · ({p.name})
+              </small>
+            </div>
+            <PackageProgressGauge value={p.progress} />
+          </a>
+        );
+      })}
+    </article>
+  );
+}
 function PackageProgressGauge({ value }: { value: number }) {
   return (
     <span
@@ -250,46 +303,7 @@ function AdminDashboard({
 
         </div>
         <div className="dashboard-primary-side">
-          <article className="card packages-card">
-          <div className="card-heading">
-            <h2 className="card-title">Work Packages</h2>
-            <Leaf size={16} color="#639374" />
-          </div>
-          {calculated.work
-            .map((p) => {
-              const Icon =
-                p.id === 'irrigation'
-                  ? Droplets
-                  : p.id === 'support'
-                    ? Fence
-                    : p.id === 'translocation'
-                      ? Trees
-                      : p.id === 'new-trees'
-                        ? Sprout
-                        : ShieldCheck;
-              return (
-                <a
-                  href={state.user.role === 'VIEWER' ? undefined : href(p.id === 'testing' ? 'quality' : p.id)}
-                  className="package-row"
-                  key={p.id}
-                >
-                  <span className="package-icon">
-                    <Icon />
-                  </span>
-                  <div className="package-meta">
-                    <strong>{p.name}</strong>
-                    <div className="progress-track">
-                      <span style={{ width: `${p.progress}%` }} />
-                    </div>
-                    <small>
-                      {p.earned.toFixed(2)}% earned · {p.weight}% weight · ({p.name})
-                    </small>
-                  </div>
-                  <PackageProgressGauge value={p.progress} />
-                </a>
-              );
-            })}
-          </article>
+          <WorkPackagesCard state={state} href={href} calculated={calculated} />
           {!isViewer && (
             <section className={`dashboard-costs ${styles.adminCostsSection}`}>
               <CostKpiCards

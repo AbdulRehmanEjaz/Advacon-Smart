@@ -12,7 +12,13 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge, Kpi, ActivityList, BlockReadinessOverview } from './dashboard';
+import {
+  Badge,
+  Kpi,
+  ActivityList,
+  BlockReadinessOverview,
+  WorkPackagesCard,
+} from './dashboard';
 import { Editor, type Field, Modal, ProgressForm } from './progress-form';
 import { Supervisors, ViewerAccess } from './supervisors';
 import { canAccessView } from '@/lib/domain/permissions';
@@ -43,6 +49,23 @@ type Edit = {
   path: string;
   transform?: (v: Record<string, unknown>) => unknown;
 };
+// Work Packages card shared with the dashboard, shown above Approved KPI Progress.
+function WorkPackagesTabSection({ state }: { state: State }) {
+  const calculated = calculateKpiProgress(
+    state.packages,
+    state.openingBalances,
+    state.submissions,
+    state.settings!,
+  );
+  return (
+    <div className="dashboard-primary-grid kpi-packages-grid">
+      <WorkPackagesCard
+        state={state}
+        href={(v: string) => `/workspace/${v}`}
+        calculated={calculated}
+      />      </div>
+  );
+}
 const commentField: Field = {
   key: 'reason',
   label: 'Reason for change',
@@ -60,7 +83,12 @@ export function DataPages(props: Props) {
   if (['approvals', 'daily', 'search'].includes(view))
     content = <Submissions {...props} />;
   else if (view === 'kpi-progress')
-    content = <ApprovedKpiProgress state={state} />;
+    content = (
+      <>
+        <WorkPackagesTabSection state={state} />
+        <ApprovedKpiProgress state={state} />
+      </>
+    );
   else if (view === 'reports')
     content = <OfficialReport state={state} />;
   else if (view === 'timesheet')
