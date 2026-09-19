@@ -368,6 +368,22 @@ async function costControlDetails() {
 
 async function details(view: string | undefined, user: Actor) {
   if (view && ['audit', 'timesheet', 'resources', 'cost-control', 'cost-records'].includes(view)) admin(user);
+  if (user.role === 'ADMIN' && (view === 'approvals' || view === 'translocation')) {
+    const trips = await database()
+      .prepare(`SELECT t.id, t.trip_id AS tripId, t.loading_supervisor_id AS supervisorId,
+        ls.name AS supervisorName, t.truck_number AS truckNumber,
+        t.trees_loaded AS treesLoaded, t.departure_time AS departureTime,
+        t.notes, t.status, t.submitted_at AS submittedAt,
+        t.approved_at AS approvedAt, ru.name AS approvedByName
+      FROM loading_trips t
+      JOIN loading_supervisors ls ON ls.id = t.loading_supervisor_id
+      LEFT JOIN users ru ON ru.id = t.approved_by
+      ORDER BY CASE t.status WHEN 'PENDING' THEN 0 ELSE 1 END, t.submitted_at DESC`)
+      .all<Row>();
+    return {
+      loadingTrips: trips.results as unknown as State['loadingTrips'],
+    };
+  }
   if (view === 'audit') {
     const audit = await database()
       .prepare(`SELECT id,user_id AS userId,role,action,entity_type AS entityType,

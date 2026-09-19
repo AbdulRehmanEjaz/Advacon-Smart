@@ -4,9 +4,15 @@ import {
   admin,
   HttpError,
   login,
+  loadingLogin,
   sameOrigin,
   userFor,
 } from '@/lib/server/auth';
+import {
+  createTrip,
+  loadingState,
+  reviewTrip,
+} from '@/lib/server/loading';
 import { getState, getStateDetail, mutate } from '@/lib/server/service';
 import { buildProgressPdf } from '@/lib/server/pdf';
 import { buildMonthlyTimesheetXlsx, buildFinanceXlsx } from '@/lib/server/xlsx';
@@ -48,7 +54,45 @@ async function handler(req: Request) {
     if (path === 'logout' && req.method === 'POST') {
       return reply({ ok: true }, 200, { 'Set-Cookie': cookie('', 0) });
     }
+    // Loading Supervisor endpoints: separate login, state and trip creation.
+    // Session identity always comes from the server; nothing from the body.
+    if (path === 'loading-login' && req.method === 'POST') {
+      const body = z
+        .object({ pin: z.string().max(10) })
+        .parse(await req.json());
+      const result = await loadingLogin(
+        body.pin,
+        req.headers.get('cf-connecting-ip') ||
+          req.headers.get('x-forwarded-for') ||
+          'unknown',
+      );
+      return result.error
+        ? reply(
+            {
+              error:
+                'Access could not be verified. Check your PIN or try again later.',
+            },
+            401,
+          )
+        : reply({ ok: true }, 200, {
+            'Set-Cookie': cookie(result.token),
+          });
+    }
     const user = await userFor(req);
+    // Default-deny: a Loading Supervisor session may only touch the three
+    // loading endpoints below. Every other API surface is forbidden.
+    if (user.role === 'LOADING_SUPERVISOR') {
+      if (path === 'loading-state' && req.method === 'GET')
+        return reply(await loadingState(user));
+      if (path === 'loading-trip' && req.method === 'POST')
+        return reply(await createTrip(req, user));
+      throw new HttpError(
+        403,
+        'Loading Supervisor access is limited to the loading dashboard.',
+      );
+    }
+    if (path === 'trip-review' && req.method === 'POST')
+      return reply(await reviewTrip(req, user));
     if (user.role === 'VIEWER' && (req.method !== 'GET' || path !== 'state'))
       throw new HttpError(403, 'Viewer access is read-only and limited to approved pages.');
     if (path === 'finance.xlsx' && req.method === 'GET') {

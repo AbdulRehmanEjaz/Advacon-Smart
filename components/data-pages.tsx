@@ -23,6 +23,7 @@ import { Editor, type Field, Modal, ProgressForm } from './progress-form';
 import { Supervisors, ViewerAccess } from './supervisors';
 import { canAccessView } from '@/lib/domain/permissions';
 import { ApprovedKpiProgress } from './approved-kpi-progress';
+import { LoadingTripsCard } from './loading-trips';
 import { ResourcesPage, TimesheetPage } from './attendance';
 import { CostControlPage } from './cost-control';
 import { ProjectSchedule } from './project-schedule';
@@ -81,7 +82,22 @@ export function DataPages(props: Props) {
   const pkg = state.packages.find((p) => p.id === view);
   let content;
   if (['approvals', 'daily', 'search'].includes(view))
-    content = <Submissions {...props} />;
+    content =
+      view === 'approvals' && admin ? (
+        <>
+          {props.detailLoading && !state.loadingTrips ? null : state.loadingTrips?.length ? (
+            <LoadingTripsCard
+              trips={state.loadingTrips}
+              admin={admin}
+              preview={preview}
+              refresh={refresh}
+            />
+          ) : null}
+          <Submissions {...props} />
+        </>
+      ) : (
+        <Submissions {...props} />
+      );
   else if (view === 'kpi-progress')
     content = (
       <>
@@ -287,6 +303,14 @@ export function DataPages(props: Props) {
               : `Forecast: ${production.forecastDays} more days at the seven-day approved average (${number(production.average)}/day).`}
           </div>
         )}
+        {tree && props.detailLoading && !state.loadingTrips ? null : tree && state.loadingTrips?.length ? (
+          <LoadingTripsCard
+            trips={state.loadingTrips}
+            admin={admin}
+            preview={preview}
+            refresh={refresh}
+          />
+        ) : null}
         <section className="card">
           <div className="card-heading">
             <div>

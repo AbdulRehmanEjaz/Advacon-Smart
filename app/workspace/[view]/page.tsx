@@ -19,6 +19,7 @@ export default async function Page({
     const user = await userFor(
       new Request('https://internal.invalid/', { headers: requestHeaders }),
     );
+    if (user.role === 'LOADING_SUPERVISOR') redirect('/loading');
     if (!canAccessView(user.role, view))
       redirect('/workspace/dashboard');
     state = await getState(user, view);

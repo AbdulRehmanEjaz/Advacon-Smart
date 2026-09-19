@@ -12,7 +12,8 @@ export async function GET(
 ) {
   try {
     const user = await userFor(req);
-    if (user.role === 'VIEWER') throw new HttpError(403, 'Viewer access does not include photos.');
+    if (user.role === 'VIEWER' || user.role === 'LOADING_SUPERVISOR')
+      throw new HttpError(403, 'This account does not include photos.');
     const { id } = await context.params;
     const photo = await first<PhotoRow>(
       `SELECT p.external_url AS externalUrl,s.supervisor_id AS supervisorId

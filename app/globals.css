@@ -661,6 +661,10 @@ h1 {
   gap: 13px;
   margin-bottom: 16px;
 }
+/* Loading Supervisor dashboard shows exactly three summary cards. */
+.loading-kpi-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
 .dashboard-kpi-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }

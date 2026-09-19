@@ -2,10 +2,14 @@ import type { PackageDefinition, Settings } from './domain/baseline';
 import type { Block, OpeningBalance, Submission } from './domain/calculations';
 import type { AttendanceRecord, Resource } from './domain/attendance';
 import type { FuelRecord, InvoicePoRecord } from './domain/costs';
+import type { LoadingTrip } from './domain/loading';
+export type { LoadingTrip };
+export type Role = 'ADMIN' | 'FOREMAN' | 'VIEWER' | 'LOADING_SUPERVISOR';
+
 export type User = {
   id: string;
   name: string;
-  role: 'ADMIN' | 'FOREMAN' | 'VIEWER';
+  role: Role;
   active: boolean;
   archivedAt: string | null;
   hasHistory?: boolean;
@@ -58,6 +62,7 @@ export type State = {
   equipmentAttendance?: AttendanceRecord[];
   fuelRecords?: FuelRecord[];
   invoicePoRecords?: InvoicePoRecord[];
+  loadingTrips?: LoadingTrip[];
 };
 export async function post(path: string, body: unknown) {
   const r = await fetch(`/api/${path}`, {
