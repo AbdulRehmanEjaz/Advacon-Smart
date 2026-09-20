@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { approvedTotals, calculateKpiProgress } from '../lib/domain/calculations';
 import { baselineSql } from '../lib/server/d1-baseline';
+import { createCredential } from '../lib/server/credentials';
 import { riyadhDate } from '../lib/domain/date';
 import { unzipSync, strFromU8 } from 'fflate';
 
@@ -30,11 +31,22 @@ const modules = [config.main, ...names.filter((name) => name !== config.main)].m
     path: resolve(root, name),
   }),
 );
+// Local test harness ONLY. These PINs never deploy: production secrets are
+// set separately on the Worker. LOADING_PIN bootstraps the local initial-loader
+// account exactly like the other roles.
 const loginBindings = {
   SESSION_SECRET: 'disposable-worker-test-secret-not-for-production',
   ADMIN_PIN: '012',
   SUPERVISOR_PIN: '345',
+  // Must not collide with any PIN the harness itself hands to accounts (e.g.
+  // the supervisor test rotates away from '678' and expects that PIN to die):
+  // the legacy bootstrap fallback would otherwise sign it in as the viewer.
+  VIEWER_PIN: '560',
+  LOADING_PIN: '747',
 };
+// The harness rotates a loader credential directly through D1 below;
+// createCredential() needs the same secret the worker receives.
+process.env.SESSION_SECRET = loginBindings.SESSION_SECRET;
 const persistence = await mkdtemp(join(tmpdir(), 'tree-control-d1-'));
 function runtime() {
   return new Miniflare(
@@ -110,6 +122,58 @@ async function state(fetcher: typeof fetch, cookie: string, suffix = '') {
   return (await response.json()) as State;
 }
 
+const SQL_SINGLE_QUOTE = String.fromCharCode(39);
+const SQL_NEWLINE = String.fromCharCode(10);
+const SQL_CARRIAGE = String.fromCharCode(13);
+
+function stripSqlComments(sql: string): string {
+  const physicalLines = sql
+    .split(SQL_CARRIAGE + SQL_NEWLINE)
+    .flatMap((part) => part.split(SQL_NEWLINE));
+  const codeLines: string[] = [];
+  for (const line of physicalLines) {
+    if (line.trimStart().startsWith('--')) continue;
+    const inline = line.indexOf(' --');
+    codeLines.push(inline >= 0 ? line.slice(0, inline) : line);
+  }
+  return codeLines.join(SQL_NEWLINE);
+}
+
+/** Split migration SQL on semicolons outside single-quoted literals. */
+function splitSqlStatements(sql: string): string[] {
+  const cleaned = stripSqlComments(sql);
+  const statements: string[] = [];
+  let current = '';
+  let inString = false;
+  for (const char of cleaned) {
+    if (char === SQL_SINGLE_QUOTE) inString = !inString;
+    if (char === ';' && !inString) {
+      if (current.trim()) statements.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  if (current.trim()) statements.push(current.trim());
+  return statements;
+}
+
+type ExecD1 = { exec: (sql: string) => Promise<unknown> };
+
+/** D1 exec() runs one query per line, so statements must be single-line. */
+function flattenStatement(sql: string): string {
+  return sql
+    .split(SQL_CARRIAGE + SQL_NEWLINE)
+    .join(' ')
+    .split(SQL_NEWLINE)
+    .join(' ');
+}
+
+async function execSqlFile(d1: ExecD1, url: URL): Promise<void> {
+  for (const statement of splitSqlStatements(await readFile(url, 'utf8'))) {
+    await d1.exec(flattenStatement(statement));
+  }
+}
 let worker = runtime();
 try {
   const d1 = await worker.getD1Database('DB');
@@ -184,6 +248,12 @@ try {
       )
     ).replace(/\s*\r?\n\s*/g, ' '),
   );
+  await execSqlFile(d1, new URL('../d1/migrations/0008_viewer_accounts.sql', import.meta.url));
+  await execSqlFile(d1, new URL('../d1/migrations/0009_loading_supervisors.sql', import.meta.url));
+  assert.equal(
+    (await d1.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name IN ('loading_supervisors','loading_trips','viewer_accounts')").first<{ count: number }>())?.count,
+    3,
+  );
   assert.equal(
     (await d1.prepare("SELECT COUNT(*) AS count FROM invoice_po_records WHERE id='legacy-po'").first<{ count: number }>())?.count,
     1,
@@ -230,6 +300,98 @@ try {
     false,
   );
   assert.equal((await state(fetcher, supervisor.cookie)).user.role, 'FOREMAN');
+
+  // ------------------------------------------------------------------
+  // Loading Supervisor flow (migrations 0008+0009 applied above).
+  // LOADING_PIN=747 is a LOCAL TEST binding - never a production secret.
+  // ------------------------------------------------------------------
+  // The loader signs in on the SHARED /api/login - his PIN is just another
+  // role there (mirrors the viewer PIN flow; no separate login page).
+  async function loadingLoginRequest(pin: string, ip: string) {
+    return fetcher(origin + '/api/login', {
+      method: 'POST',
+      headers: { Origin: origin, 'Content-Type': 'application/json', 'cf-connecting-ip': ip },
+      body: JSON.stringify({ pin }),
+    });
+  }
+  // 7. Wrong PIN returns 401 (distinct test IP so the limiter stays isolated).
+  assert.equal((await loadingLoginRequest('999', 'loader-wrong')).status, 401);
+  // 1/2. Correct bootstrap PIN logs in and sets the session cookie.
+  const loaderResponse = await loadingLoginRequest('747', 'loader-main');
+  assert.equal(loaderResponse.status, 200, await loaderResponse.clone().text());
+  const loaderCookie = (loaderResponse.headers.get('set-cookie') || '').split(';')[0];
+  assert.match(loaderCookie, /^tree_session=/);
+  // F. Browser-facing flow proof: cookie from Set-Cookie authenticates /api/loading-state.
+  const loaderStateResponse = await fetcher(origin + '/api/loading-state', {
+    headers: { Cookie: loaderCookie },
+  });
+  assert.equal(loaderStateResponse.status, 200);
+  const loaderState = (await loaderStateResponse.json()) as {
+    user: { id: string; role: string; name: string };
+    target: number;
+    summary: { target: number; approved: number; pending: number; remaining: number };
+    trips: { id: string; tripId: string; status: string; treesLoaded: number }[];
+  };
+  assert.equal(loaderState.user.role, 'LOADING_SUPERVISOR');
+  assert.equal(loaderState.user.id, 'initial-loader');
+  // 3. State carries the live KPI target and approved-only math.
+  assert.equal(loaderState.target, 10000);
+  assert.deepEqual(loaderState.summary, { target: 10000, approved: 0, pending: 0, remaining: 10000 });
+  // 4. /loading page opens with the session cookie.
+  assert.equal((await fetcher(origin + '/loading', { headers: { Cookie: loaderCookie } })).status, 200);
+  // 5. Loader cannot read the main workspace state.
+  assert.equal((await fetcher(origin + '/api/state?view=dashboard', { headers: { Cookie: loaderCookie } })).status, 403);
+  // 6. Loader cannot hit admin mutations (trip review is admin-only).
+  assert.equal((await post(fetcher, 'trip-review', { id: 'nope', decision: 'APPROVED' }, loaderCookie)).status, 403);
+  assert.equal((await post(fetcher, 'review', { id: 'nope', version: 1, decision: 'APPROVED', comment: '' }, loaderCookie)).status, 403);
+  // 10. Trip creation works; departure and trip ID are server-generated.
+  const tripResponse = await post(fetcher, 'loading-trip', {
+    truckNumber: '1234', treesLoaded: 250, notes: 'smoke trip',
+  }, loaderCookie);
+  assert.equal(tripResponse.status, 200, await tripResponse.clone().text());
+  const trip = (await tripResponse.json()) as { tripId: string };
+  // 11. Trip ID format: TOKEN-DD/MM-HH:MM-T1 (Riyadh civil time, sequence 1).
+  assert.match(trip.tripId, /^1234-\d{2}\/\d{2}-\d{2}:\d{2}-T1$/);
+  // 12. Pending trip appears in loading state.
+  const withTrip = await (await fetcher(origin + '/api/loading-state', { headers: { Cookie: loaderCookie } })).json() as typeof loaderState;
+  assert.equal(withTrip.trips.length, 1);
+  assert.equal(withTrip.trips[0].status, 'PENDING');
+  assert.equal(withTrip.trips[0].tripId, trip.tripId);
+  // 13. Pending trip does NOT reduce the remaining target.
+  assert.deepEqual(withTrip.summary, { target: 10000, approved: 0, pending: 250, remaining: 10000 });
+  // Zero/negative quantities are rejected server-side.
+  assert.equal((await post(fetcher, 'loading-trip', { truckNumber: '1234', treesLoaded: 0 }, loaderCookie)).status, 400);
+  // 9/8. Rate limiting: five bad attempts on one IP trip the 15-minute block,
+  // the correct PIN then reports throttled too, and a different IP is unaffected.
+  for (let attempt = 0; attempt < 5; attempt += 1)
+    assert.equal((await loadingLoginRequest('111', 'loader-limited')).status, 401);
+  const throttled = await loadingLoginRequest('747', 'loader-limited');
+  // The shared login endpoint deliberately returns the same generic message
+  // for throttled and wrong-PIN (no lockout enumeration); the limiter itself
+  // is proven by the clean-IP control right below.
+  assert.equal(throttled.status, 401);
+  assert.equal(((await throttled.json()) as { error: string }).error.includes('Access could not be verified'), true);
+  // 8. A correct PIN still works from a clean IP after the failed attempts.
+  assert.equal((await loadingLoginRequest('747', 'loader-clean')).status, 200);
+  // Loader credential rotation (admin PIN management ships later): rotating
+  // the stored credential must invalidate the old session and the old PIN,
+  // and the new PIN must authenticate - the same contract supervisors and
+  // viewers follow via the admin PIN-change endpoints.
+  const rotatedCredential = await createCredential('848');
+  await d1.prepare(
+    'UPDATE loading_supervisors SET pin_lookup=?,pin_salt=?,pin_hash=?,credential_version=credential_version+1 WHERE id=?',
+  ).bind(
+    rotatedCredential.pinLookup,
+    rotatedCredential.pinSalt,
+    rotatedCredential.pinHash,
+    'initial-loader',
+  ).run();
+  assert.equal((await fetcher(origin + '/api/loading-state', { headers: { Cookie: loaderCookie } })).status, 401);
+  assert.equal((await loadingLoginRequest('747', 'loader-rotated')).status, 401);
+  const rotatedLogin = await loadingLoginRequest('848', 'loader-rotated');
+  assert.equal(rotatedLogin.status, 200, await rotatedLogin.clone().text());
+  const rotatedCookie = (rotatedLogin.headers.get('set-cookie') || '').split(';')[0];
+  assert.equal((await fetcher(origin + '/api/loading-state', { headers: { Cookie: rotatedCookie } })).status, 200);
 
   assert.equal((await fetcher(origin + '/api/state?view=timesheet', { headers: { Cookie: supervisor.cookie } })).status, 403);
   assert.equal((await fetcher(origin + '/api/state?view=timesheet&detail=1', { headers: { Cookie: supervisor.cookie } })).status, 403);
@@ -385,7 +547,7 @@ try {
   const report = await fetcher(`${origin}/api/report.pdf`, {
     headers: { Cookie: admin.cookie },
   });
-  assert.equal(report.status, 200);
+  assert.equal(report.status, 200, await report.clone().text());
   assert.equal(report.headers.get('content-type'), 'application/pdf');
   assert.equal(report.headers.get('cache-control'), 'no-store');
   assert.match(report.headers.get('content-disposition') || '', /Progress_Report_\d{4}-\d{2}-\d{2}\.pdf/);
@@ -414,6 +576,8 @@ try {
   assert.equal((await fetcher(origin + '/api/state', { headers: { Cookie: secondLogin.cookie } })).status, 401);
   assert.equal((await loginResponse(fetcher, '678', 'old-pin')).status, 401);
   const changedLogin = await login(fetcher, '679', 'changed-pin');
+  // The new PIN's session works before the account is deactivated below.
+  assert.equal((await state(fetcher, changedLogin.cookie)).user.id, createdId);
   assert.equal((await post(fetcher, 'supervisor', {
     action: 'status', id: createdId, active: false,
   }, admin.cookie)).status, 200);
@@ -422,6 +586,18 @@ try {
   assert.equal((await post(fetcher, 'supervisor', {
     action: 'rename', id: 'initial-foreman', name: 'Forbidden Rename',
   }, supervisor.cookie)).status, 403);
+  // Viewer PIN change follows the same invalidation contract: the bootstrap
+  // login creates initial-viewer from VIEWER_PIN, an admin PIN change kills
+  // the old cookie and the old PIN, and the new PIN signs in cleanly.
+  const viewerLogin = await login(fetcher, '560', 'viewer-before-pin');
+  assert.equal((await state(fetcher, viewerLogin.cookie)).user.role, 'VIEWER');
+  assert.equal((await post(fetcher, 'viewer', {
+    action: 'pin', id: 'initial-viewer', pin: '561', confirmPin: '561',
+  }, admin.cookie)).status, 200);
+  assert.equal((await fetcher(origin + '/api/state', { headers: { Cookie: viewerLogin.cookie } })).status, 401);
+  assert.equal((await loginResponse(fetcher, '560', 'viewer-old-pin')).status, 401);
+  const viewerChanged = await login(fetcher, '561', 'viewer-after-pin');
+  assert.equal((await state(fetcher, viewerChanged.cookie)).user.role, 'VIEWER');
 
   for (const wrongDate of [offsetRiyadhDate(-1), offsetRiyadhDate(1)]) {
     const wrongDay = await post(fetcher, 'submission', {

@@ -4,7 +4,6 @@ import {
   admin,
   HttpError,
   login,
-  loadingLogin,
   sameOrigin,
   userFor,
 } from '@/lib/server/auth';
@@ -47,37 +46,16 @@ async function handler(req: Request) {
             },
             401,
           )
-        : reply({ ok: true }, 200, {
+        : reply({ ok: true, role: result.user.role }, 200, {
             'Set-Cookie': cookie(result.token),
           });
     }
     if (path === 'logout' && req.method === 'POST') {
       return reply({ ok: true }, 200, { 'Set-Cookie': cookie('', 0) });
     }
-    // Loading Supervisor endpoints: separate login, state and trip creation.
-    // Session identity always comes from the server; nothing from the body.
-    if (path === 'loading-login' && req.method === 'POST') {
-      const body = z
-        .object({ pin: z.string().max(10) })
-        .parse(await req.json());
-      const result = await loadingLogin(
-        body.pin,
-        req.headers.get('cf-connecting-ip') ||
-          req.headers.get('x-forwarded-for') ||
-          'unknown',
-      );
-      return result.error
-        ? reply(
-            {
-              error:
-                'Access could not be verified. Check your PIN or try again later.',
-            },
-            401,
-          )
-        : reply({ ok: true }, 200, {
-            'Set-Cookie': cookie(result.token),
-          });
-    }
+    // Loading Supervisor endpoints: state and trip creation. Login happens on
+    // the shared /api/login above (the loader PIN is just another role there);
+    // session identity always comes from the server, never from the body.
     const user = await userFor(req);
     // Default-deny: a Loading Supervisor session may only touch the three
     // loading endpoints below. Every other API surface is forbidden.

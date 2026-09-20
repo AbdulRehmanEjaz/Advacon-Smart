@@ -16,6 +16,7 @@ function authDiagnostic(code: string, error: unknown) {
     process.env.ADMIN_PIN,
     process.env.SUPERVISOR_PIN,
     process.env.VIEWER_PIN,
+    process.env.LOADING_PIN,
   ])
     if (value) message = message.replaceAll(value, '[redacted]');
   message = message
@@ -219,7 +220,11 @@ async function loginRowForLookup(pinLookup: string) {
   const viewer = await authStage('AUTH_LOGIN_LOOKUP_FAILED', () =>
     first<ViewerAccountRow>(viewerSelect('pin_lookup=?'), pinLookup),
   );
-  return viewer ? { ...viewer, role: 'VIEWER' as Role } : undefined;
+  if (viewer) return { ...viewer, role: 'VIEWER' as Role };
+  const loader = await authStage('AUTH_LOGIN_LOOKUP_FAILED', () =>
+    first<LoaderAccountRow>(loaderSelect('pin_lookup=?'), pinLookup),
+  );
+  return loader ? { ...loader, role: 'LOADING_SUPERVISOR' as Role } : undefined;
 }
 function actorFromRow(row: UserRow): Actor {
   return {
@@ -310,6 +315,7 @@ export async function login(pin: string, clientIdentifier = 'unknown') {
       { id: 'initial-admin', pin: process.env.ADMIN_PIN, table: 'users' },
       { id: 'initial-foreman', pin: process.env.SUPERVISOR_PIN, table: 'users' },
       { id: 'initial-viewer', pin: process.env.VIEWER_PIN ?? '000', table: 'viewer_accounts' },
+      { id: 'initial-loader', pin: process.env.LOADING_PIN, table: 'loading_supervisors' },
     ] as const;
     const legacy = candidates.find(
       (candidate) => candidate.pin && /^\d{3}$/.test(candidate.pin) &&
@@ -317,24 +323,41 @@ export async function login(pin: string, clientIdentifier = 'unknown') {
     );
     if (legacy) {
       const bootstrap = await authStage('AUTH_LOGIN_LOOKUP_FAILED', async () => {
-        const found = legacy.table === 'users'
-          ? await first<UserRow>(userSelect('id=?'), legacy.id)
-          : await viewerUserRow(legacy.id);
-        if (found || legacy.table !== 'viewer_accounts') return found ?? undefined;
-        // No viewer account exists yet: bootstrap the initial one on first login.
+        if (legacy.table === 'users')
+          return (await first<UserRow>(userSelect('id=?'), legacy.id)) ?? undefined;
+        const found = legacy.table === 'viewer_accounts'
+          ? await viewerUserRow(legacy.id)
+          : await loaderUserRow(legacy.id);
+        if (found) return found;
+        // No dedicated account exists yet: bootstrap the initial one on first
+        // login with the configured secret - never a hardcoded PIN.
         const timestamp = now();
         await authStage('AUTH_BOOTSTRAP_CREDENTIAL_FAILED', () =>
           statement(
-            `INSERT INTO viewer_accounts (id,name,active,created_at,updated_at)
+            `INSERT INTO ${legacy.table} (id,name,active,created_at,updated_at)
              VALUES (?,?,1,?,?)`,
             legacy.id,
-            'Project Viewer',
+            legacy.table === 'viewer_accounts' ? 'Project Viewer' : 'Loading Supervisor',
             timestamp,
             timestamp,
           ).run(),
         );
-        return viewerUserRow(legacy.id);
+        return legacy.table === 'viewer_accounts'
+          ? await viewerUserRow(legacy.id)
+          : await loaderUserRow(legacy.id);
       });
+      if (bootstrap?.pinSalt && bootstrap.pinHash) {
+        // The env PIN matches but a DIFFERENT credential is already stored.
+        // The env PIN is only the initial bootstrap credential - it never
+        // overwrites a live stored credential (that would silently rotate a
+        // PIN). Surface the mismatch safely for operators.
+        if (legacy.table === 'loading_supervisors')
+          console.error(
+            'AUTH_LOADING_CREDENTIAL_STALE',
+            'initial-loader has a stored credential that does not match LOADING_PIN',
+            'rotate=true path=admin credential reset required',
+          );
+      }
       if (bootstrap && (!bootstrap.pinSalt || !bootstrap.pinHash)) {
         const credential = await authStage(
           'AUTH_BOOTSTRAP_CREDENTIAL_FAILED',
@@ -355,7 +378,9 @@ export async function login(pin: string, clientIdentifier = 'unknown') {
         row = await authStage('AUTH_LOGIN_LOOKUP_FAILED', async () => {
           const found = legacy.table === 'users'
             ? await first<UserRow>(userSelect('id=?'), bootstrap.id)
-            : await viewerUserRow(bootstrap.id);
+            : legacy.table === 'viewer_accounts'
+              ? await viewerUserRow(bootstrap.id)
+              : await loaderUserRow(bootstrap.id);
           return found ?? undefined;
         });
         valid = Boolean(
@@ -376,117 +401,13 @@ export async function login(pin: string, clientIdentifier = 'unknown') {
   await database().batch([
     row.role === 'VIEWER'
       ? statement('UPDATE viewer_accounts SET last_login=? WHERE id=?', timestamp, row.id)
-      : statement('UPDATE users SET last_login=? WHERE id=?', timestamp, row.id),
+      : row.role === 'LOADING_SUPERVISOR'
+        ? statement('UPDATE loading_supervisors SET last_login=? WHERE id=?', timestamp, row.id)
+        : statement('UPDATE users SET last_login=? WHERE id=?', timestamp, row.id),
     statement('DELETE FROM login_attempts WHERE identifier=?', rateKey),
   ]);
   row.lastLogin = timestamp;
   const user = actorFromRow(row);
-  return {
-    error: false as const,
-    token: await authStage('AUTH_SESSION_CREATE_FAILED', () =>
-      createSessionToken(user),
-    ),
-    user,
-  };
-}
-
-// Dedicated Loading Supervisor login. Mirrors login(): same rate limiting,
-// same salted-PIN credential scheme, bootstrap-on-first-use from the
-// LOADING_PIN secret for the initial demo/local account. Credentials live in
-// loading_supervisors only, so a loader PIN can never match a main-login row.
-export async function loadingLogin(pin: string, clientIdentifier = 'unknown') {
-  const rateKey = await authStage('AUTH_LOGIN_LOOKUP_FAILED', () =>
-    lookup(`loading:${clientIdentifier}`),
-  );
-  const attempt = await authStage('AUTH_LOGIN_LOOKUP_FAILED', () =>
-    first<{ blockedUntil: string | null }>(
-      'SELECT blocked_until AS blockedUntil FROM login_attempts WHERE identifier=?',
-      rateKey,
-    ),
-  );
-  if (attempt?.blockedUntil && new Date(attempt.blockedUntil).getTime() > Date.now())
-    return { error: true as const, throttled: true as const };
-  if (!/^\d{3}$/.test(pin)) {
-    await failure(rateKey);
-    return { error: true as const };
-  }
-  const pinLookup = await authStage('AUTH_LOGIN_LOOKUP_FAILED', () => lookup(pin));
-  let row = await authStage('AUTH_LOGIN_LOOKUP_FAILED', () =>
-    first<LoaderAccountRow>(loaderSelect('pin_lookup=?'), pinLookup),
-  );
-  let valid = Boolean(
-    row?.pinSalt && row.pinHash &&
-    await authStage('AUTH_CREDENTIAL_VERIFY_FAILED', () =>
-      verifyCredential(pin, row!.pinSalt!, row!.pinHash!),
-    ),
-  );
-
-  if (!valid) {
-    const bootstrapPin = process.env.LOADING_PIN;
-    const legacy = Boolean(
-      bootstrapPin && /^\d{3}$/.test(bootstrapPin) &&
-        constantTimeEqual(pin, bootstrapPin),
-    );
-    if (legacy) {
-      const bootstrap = await authStage('AUTH_LOGIN_LOOKUP_FAILED', async () => {
-        const found = await first<LoaderAccountRow>(loaderSelect('id=?'), 'initial-loader');
-        if (found) return found;
-        // No loading supervisor account exists yet: bootstrap the demo/local
-        // one on first login with the configured secret, never a hardcoded PIN.
-        const timestamp = now();
-        await authStage('AUTH_BOOTSTRAP_CREDENTIAL_FAILED', () =>
-          statement(
-            `INSERT INTO loading_supervisors (id,name,active,created_at,updated_at)
-             VALUES (?,?,1,?,?)`,
-            'initial-loader',
-            'Loading Supervisor',
-            timestamp,
-            timestamp,
-          ).run(),
-        );
-        return first<LoaderAccountRow>(loaderSelect('id=?'), 'initial-loader');
-      });
-      if (bootstrap && (!bootstrap.pinSalt || !bootstrap.pinHash)) {
-        const credential = await authStage(
-          'AUTH_BOOTSTRAP_CREDENTIAL_FAILED',
-          () => createCredential(pin),
-        );
-        await authStage('AUTH_BOOTSTRAP_CREDENTIAL_FAILED', () =>
-          statement(
-            `UPDATE loading_supervisors SET pin_lookup=?,pin_salt=?,pin_hash=?,
-             credential_version=credential_version+1,updated_at=?
-             WHERE id=? AND (pin_salt IS NULL OR pin_hash IS NULL)`,
-            credential.pinLookup,
-            credential.pinSalt,
-            credential.pinHash,
-            now(),
-            bootstrap.id,
-          ).run(),
-        );
-        row = await authStage('AUTH_LOGIN_LOOKUP_FAILED', () =>
-          first<LoaderAccountRow>(loaderSelect('id=?'), bootstrap.id),
-        );
-        valid = Boolean(
-          row?.pinSalt && row.pinHash &&
-          await authStage('AUTH_CREDENTIAL_VERIFY_FAILED', () =>
-            verifyCredential(pin, row!.pinSalt!, row!.pinHash!),
-          ),
-        );
-      }
-    }
-  }
-
-  if (!valid || !row || !Number(row.active) || row.archivedAt) {
-    await failure(rateKey);
-    return { error: true as const };
-  }
-  const timestamp = now();
-  await database().batch([
-    statement('UPDATE loading_supervisors SET last_login=? WHERE id=?', timestamp, row.id),
-    statement('DELETE FROM login_attempts WHERE identifier=?', rateKey),
-  ]);
-  row.lastLogin = timestamp;
-  const user = actorFromRow({ ...row, role: 'LOADING_SUPERVISOR' as Role });
   return {
     error: false as const,
     token: await authStage('AUTH_SESSION_CREATE_FAILED', () =>

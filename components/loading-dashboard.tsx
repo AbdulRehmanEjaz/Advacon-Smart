@@ -93,7 +93,7 @@ export function LoadingDashboard({ initialState }: { initialState: LoadingState 
     try {
       await fetch('/api/logout', { method: 'POST' });
     } finally {
-      window.location.assign('/loading-login');
+      window.location.assign('/');
     }
   }
 

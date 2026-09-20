@@ -1077,7 +1077,11 @@ export async function mutate(path: string, req: Request, user: Actor) {
         'SELECT id FROM users WHERE pin_lookup=?',
         credential.pinLookup,
       );
-      if ((pinDuplicate && pinDuplicate.id !== targetId) || userPinDuplicate)
+      const loaderPinDuplicate = await first<Row>(
+        'SELECT id FROM loading_supervisors WHERE pin_lookup=?',
+        credential.pinLookup,
+      );
+      if ((pinDuplicate && pinDuplicate.id !== targetId) || userPinDuplicate || loaderPinDuplicate)
         throw new HttpError(409, 'That PIN is already reserved. Choose a different PIN.');
     }
     const viewerTimestamp = now();
@@ -1142,7 +1146,8 @@ export async function mutate(path: string, req: Request, user: Actor) {
       credential = await createCredential(data.pin);
       const duplicate = await first<Row>('SELECT id FROM users WHERE pin_lookup=?', credential.pinLookup);
       const viewerDuplicate = await first<Row>('SELECT id FROM viewer_accounts WHERE pin_lookup=?', credential.pinLookup);
-      if ((duplicate && duplicate.id !== targetId) || viewerDuplicate)
+      const loaderDuplicate = await first<Row>('SELECT id FROM loading_supervisors WHERE pin_lookup=?', credential.pinLookup);
+      if ((duplicate && duplicate.id !== targetId) || viewerDuplicate || loaderDuplicate)
         throw new HttpError(409, 'That PIN is already reserved. Choose a different PIN.');
     }
     const timestamp = now();
@@ -1155,7 +1160,7 @@ export async function mutate(path: string, req: Request, user: Actor) {
       writes.push(
         statement(
           `INSERT INTO users (id,name,role,pin_lookup,pin_salt,pin_hash,credential_version,active,created_at,updated_at)
-           VALUES (?,?,'FOREMAN',?,?,?,?,1,1,?,?)`,
+           VALUES (?,?,'FOREMAN',?,?,?,1,1,?,?)`,
           savedId,
           data.name,
           credential!.pinLookup,

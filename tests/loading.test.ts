@@ -106,8 +106,9 @@ await test('API route keeps loading endpoints loader-only and trip review admin-
     readFile(new URL('../lib/server/loading.ts', import.meta.url), 'utf8'),
     readFile(new URL('../lib/server/auth.ts', import.meta.url), 'utf8'),
   ]);
-  assert.match(route, /path === 'loading-login' && req\.method === 'POST'/);
   assert.match(route, /path === 'loading-state' && req\.method === 'GET'/);
+  assert.doesNotMatch(route, /loading-login/);
+  assert.match(route, /role: result\.user\.role/);
   assert.match(route, /path === 'loading-trip' && req\.method === 'POST'/);
   assert.match(route, /user\.role === 'LOADING_SUPERVISOR'/);
   assert.match(route, /Loading Supervisor access is limited/);
@@ -117,6 +118,8 @@ await test('API route keeps loading endpoints loader-only and trip review admin-
   assert.match(authModule, /initial-loader/);
   assert.match(authModule, /LOADING_PIN/);
   assert.match(authModule, /'LOADING_SUPERVISOR'/);
+  assert.match(authModule, /loading_supervisors/);
+  assert.doesNotMatch(authModule, /export async function loadingLogin/);
 });
 
 await test('departure time and trip identity are always generated server-side', async () => {

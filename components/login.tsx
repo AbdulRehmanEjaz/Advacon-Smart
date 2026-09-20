@@ -22,8 +22,12 @@ export function Login() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin }),
       });
-      const d = (await r.json()) as { error?: string };
+      const d = (await r.json()) as { error?: string; role?: string };
       if (!r.ok) throw Error(d.error || 'Unable to sign in.');
+      if (d.role === 'LOADING_SUPERVISOR') {
+        window.location.assign('/loading');
+        return;
+      }
       const snapshotResponse = await fetch('/api/state?view=dashboard', {
         cache: 'no-store',
       });
