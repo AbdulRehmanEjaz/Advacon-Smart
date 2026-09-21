@@ -122,7 +122,16 @@ export function Workspace({
           ]),
         ),
     );
-  const detailViews = ['dashboard', 'audit', 'timesheet', 'resources', 'cost-control', 'cost-records'];
+  const detailViews = [
+    'dashboard',
+    'audit',
+    'timesheet',
+    'resources',
+    'cost-control',
+    'cost-records',
+    'approvals',
+    'translocation',
+  ];
   const loadedDetails = useRef(
     new Set(
       detailViews.filter((item) =>
@@ -130,7 +139,9 @@ export function Workspace({
           ? Boolean(initialState?.audit)
           : ['dashboard', 'cost-control', 'cost-records'].includes(item)
             ? Boolean(initialState?.fuelRecords)
-            : Boolean(initialState?.manpower),
+            : item === 'approvals' || item === 'translocation'
+              ? Boolean(initialState?.loadingTrips)
+              : Boolean(initialState?.manpower),
       ),
     ),
   );
@@ -306,7 +317,11 @@ export function Workspace({
   const isAdmin = state.user.role === 'ADMIN',
     isViewer = state.user.role === 'VIEWER',
     allowed = canAccessView(state.user.role, activeView),
-    pending = state.submissions.filter((s) => s.status === 'WAITING').length;
+    pending =
+      state.submissions.filter((s) => s.status === 'WAITING').length +
+      // Loading Supervisor trips count as pending approvals too, once the
+      // approvals/translocation detail (which carries loadingTrips) is loaded.
+      (state.loadingTrips?.filter((t) => t.status === 'PENDING').length || 0);
   const title =
     state.user.role === 'FOREMAN' && activeView === 'dashboard'
       ? 'Site Progress'

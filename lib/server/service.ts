@@ -404,8 +404,18 @@ async function details(view: string | undefined, user: Actor) {
       LEFT JOIN users ru ON ru.id = t.approved_by
       ORDER BY CASE t.status WHEN 'PENDING' THEN 0 ELSE 1 END, t.submitted_at DESC`)
       .all<Row>();
+    const allocations = await database()
+      .prepare(`SELECT a.id,a.loading_trip_id AS loadingTripId,t.trip_id AS tripId,
+        a.block_id AS blockId,a.quantity,a.created_by AS createdBy,
+        u.name AS createdByName,a.created_at AS createdAt
+        FROM loading_trip_block_allocations a
+        JOIN loading_trips t ON t.id=a.loading_trip_id
+        LEFT JOIN users u ON u.id=a.created_by
+        ORDER BY a.created_at`)
+      .all<Row>();
     return {
       loadingTrips: trips.results as unknown as State['loadingTrips'],
+      loadingAllocations: allocations.results as unknown as State['loadingAllocations'],
     };
   }
   if (view === 'audit') {
@@ -443,7 +453,7 @@ export async function getState(user: Actor, view?: string) {
 export async function getStateDetail(user: Actor, view: string) {
   if (!canAccessView(user.role, view)) throw new HttpError(403, 'This page is not available for your role.');
   if (user.role === 'VIEWER') return getState(user, view);
-  if (!['dashboard', 'audit', 'timesheet', 'resources', 'cost-control', 'cost-records'].includes(view)) return {};
+  if (!['dashboard', 'audit', 'timesheet', 'resources', 'cost-control', 'cost-records', 'approvals', 'translocation'].includes(view)) return {};
   return details(view, user);
 }
 
