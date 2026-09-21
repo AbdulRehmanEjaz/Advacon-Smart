@@ -26,21 +26,29 @@ type TripRow = {
   treesLoaded: number;
   departureTime: string;
   notes: string;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'DELETED';
   submittedAt: string;
   approvedAt: string | null;
   approvedByName: string | null;
+  deletedAt: string | null;
+  deletedByName: string | null;
 };
 
+// The visible status folds the soft-delete marker into the status value:
+// a trip with deleted_at set renders as DELETED while the raw status column
+// (protected by an unalterable CHECK) keeps its original value.
 const tripSql = `SELECT
   t.id, t.trip_id AS tripId, t.loading_supervisor_id AS supervisorId,
   ls.name AS supervisorName, t.truck_number AS truckNumber,
   t.trees_loaded AS treesLoaded, t.departure_time AS departureTime,
-  t.notes, t.status, t.submitted_at AS submittedAt,
-  t.approved_at AS approvedAt, ru.name AS approvedByName
+  t.notes, CASE WHEN t.deleted_at IS NOT NULL THEN 'DELETED' ELSE t.status END AS status,
+  t.submitted_at AS submittedAt,
+  t.approved_at AS approvedAt, ru.name AS approvedByName,
+  t.deleted_at AS deletedAt, du.name AS deletedByName
 FROM loading_trips t
 JOIN loading_supervisors ls ON ls.id = t.loading_supervisor_id
-LEFT JOIN users ru ON ru.id = t.approved_by`;
+LEFT JOIN users ru ON ru.id = t.approved_by
+LEFT JOIN users du ON du.id = t.deleted_by`;
 
 function tripFromRow(row: Record<string, unknown>): TripRow {
   return {
@@ -56,6 +64,8 @@ function tripFromRow(row: Record<string, unknown>): TripRow {
     submittedAt: String(row.submittedAt || ''),
     approvedAt: row.approvedAt == null ? null : String(row.approvedAt),
     approvedByName: row.approvedByName == null ? null : String(row.approvedByName),
+    deletedAt: row.deletedAt == null ? null : String(row.deletedAt),
+    deletedByName: row.deletedByName == null ? null : String(row.deletedByName),
   };
 }
 
@@ -110,11 +120,22 @@ export async function loadingState(user: Actor) {
   if (user.role !== 'LOADING_SUPERVISOR')
     throw new HttpError(403, 'Loading Supervisor access required.');
   const rows = await database()
-    .prepare(`${tripSql} WHERE t.loading_supervisor_id=? ORDER BY t.submitted_at DESC`)
+    .prepare(
+      `${tripSql} WHERE t.loading_supervisor_id=? AND t.deleted_at IS NULL
+       ORDER BY t.submitted_at DESC`,
+    )
     .bind(user.id)
     .all<Row>();
   const trips = rows.results.map(tripFromRow);
   const target = await translocationTarget();
+  // Any of the loader's trips were soft-deleted by an admin? Surfaced as a
+  // flag (no quantities, no IDs leak beyond what the loader already owns).
+  const deleted = await first<{ count: number }>(
+    `SELECT COUNT(*) AS count FROM loading_trips
+     WHERE loading_supervisor_id=? AND deleted_at IS NOT NULL`,
+    user.id,
+  );
+  const deletedCount = Number(deleted?.count ?? 0);
   return {
     user: {
       id: user.id,
@@ -124,6 +145,7 @@ export async function loadingState(user: Actor) {
     target,
     summary: loadingSummary(target, trips),
     trips,
+    deletedTripsExcluded: deletedCount > 0,
   };
 }
 
@@ -208,7 +230,7 @@ export async function reviewTrip(req: Request, user: Actor) {
   const row = await first<Row>(`${tripSql} WHERE t.id=?`, data.id);
   if (!row) throw new HttpError(404, 'Trip not found.');
   const before = tripFromRow(row);
-  if (before.status !== 'PENDING')
+  if (!['PENDING', 'APPROVED'].includes(before.status))
     throw new HttpError(409, 'This trip has already been reviewed. Refresh the page.');
   const timestamp = now();
   await statement(
@@ -343,6 +365,51 @@ export async function allocateTrip(req: Request, user: Actor) {
     treesLoaded: trip.treesLoaded,
     allocations: data.allocations,
     approvedAt: timestamp,
+  });
+  return { ok: true };
+}
+
+/**
+ * Admin soft-delete of a loading trip. The row is never removed: it is marked
+ * DELETED (with who/when) and stays visible in the admin history, but the
+ * KPI/progress engine counts allocations only from APPROVED trips, so a
+ * deleted trip (even one approved earlier) drops out of Completed Trees,
+ * Remaining Trees, block progress and overall progress immediately. Its
+ * trip_id remains taken (UNIQUE), so the global T sequence simply continues —
+ * deleted IDs are never reused or renumbered.
+ */
+const deleteSchema = z.object({ id: z.string().min(1) });
+
+export async function tripDelete(req: Request, user: Actor) {
+  admin(user);
+  const body: unknown = await req.json();
+  const data = deleteSchema.parse(body);
+  // Aliased select (tripSql) — see reviewTrip; identity fields must be real.
+  const row = await first<Row>(`${tripSql} WHERE t.id=?`, data.id);
+  if (!row) throw new HttpError(404, 'Trip not found.');
+  const before = tripFromRow(row);
+  if (!['PENDING', 'APPROVED'].includes(before.status))
+    throw new HttpError(409, 'This trip has already been deleted. Refresh the page.');
+  const timestamp = now();
+  const results = await database().batch([
+    statement(
+      `UPDATE loading_trips SET deleted_at=?,deleted_by=?,updated_at=?
+       WHERE id=? AND deleted_at IS NULL AND status IN ('PENDING','APPROVED')`,
+      timestamp,
+      user.id,
+      timestamp,
+      data.id,
+    ),
+  ]);
+  if (Number(results[0].meta?.changes ?? 0) === 0)
+    throw new HttpError(
+      409,
+      'This trip was just reviewed or deleted by another administrator. Refresh the page.',
+    );
+  await auditStatement(user, 'TRIP_DELETED', before.tripId, before, {
+    status: 'DELETED',
+    treesLoaded: before.treesLoaded,
+    deletedAt: timestamp,
   });
   return { ok: true };
 }

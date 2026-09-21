@@ -201,6 +201,22 @@ export function LoadingTripsCard({
       setBusy('');
     }
   }
+  // Soft delete: the record stays in this history with Status DELETED plus
+  // Deleted By/At, but it stops feeding Completed Trees, block progress and
+  // the KPIs — the engine only counts allocations of APPROVED trips.
+  async function remove(id: string) {
+    if (!window.confirm('Delete this trip? Its record is kept in history but excluded from all progress and KPIs.')) return;
+    setBusy(id);
+    setError('');
+    try {
+      await post('trip-delete', { id });
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Delete failed.');
+    } finally {
+      setBusy('');
+    }
+  }
   const pending = trips.filter((t) => t.status === 'PENDING');
   return (
     <section className="card">
@@ -267,7 +283,31 @@ export function LoadingTripsCard({
                       >
                         Reject
                       </button>
+                      <button
+                        type="button"
+                        className="text-button"
+                        style={{ marginLeft: 12, color: '#a33' }}
+                        disabled={Boolean(busy) || preview}
+                        onClick={() => remove(t.id)}
+                      >
+                        Delete
+                      </button>
                     </>
+                  ) : t.status === 'APPROVED' ? (
+                    <>
+                      <small>{t.approvedByName ? `by ${t.approvedByName}` : ''}</small>
+                      <button
+                        type="button"
+                        className="text-button"
+                        style={{ marginLeft: 12, color: '#a33' }}
+                        disabled={Boolean(busy) || preview}
+                        onClick={() => remove(t.id)}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  ) : t.status === 'DELETED' ? (
+                    <small>Deleted{t.deletedByName ? ` by ${t.deletedByName}` : ''}{t.deletedAt ? ` · ${riyadhStamp(t.deletedAt)}` : ''}</small>
                   ) : (
                     <small>{t.approvedByName ? `by ${t.approvedByName}` : ''}</small>
                   )}

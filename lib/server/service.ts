@@ -130,14 +130,14 @@ export async function loadCore(supervisorId?: string): Promise<Core> {
       due_date AS dueDate,closed_at AS closedAt,created_at AS createdAt FROM observations`),
     db.prepare(`SELECT activity_id AS activityId,quantity,source,effective_at AS effectiveAt
       FROM kpi_opening_balances ORDER BY activity_id`),
-    // Approved loading-trip block allocations. Rows are only written in the
-    // same atomic batch that approves the trip, so every row here belongs to
-    // an APPROVED trip and contributes to the existing KPI engine.
+    // Approved loading-trip block allocations, excluding soft-deleted trips
+    // (deleted_at set): their rows are retained for history but contribute
+    // nothing to Completed Trees, block progress or the KPIs.
     db.prepare(`SELECT a.id,a.loading_trip_id AS loadingTripId,t.trip_id AS tripId,
       a.block_id AS blockId,a.quantity,a.created_by AS createdBy,
       u.name AS createdByName,a.created_at AS createdAt
       FROM loading_trip_block_allocations a
-      JOIN loading_trips t ON t.id=a.loading_trip_id
+      JOIN loading_trips t ON t.id=a.loading_trip_id AND t.deleted_at IS NULL
       LEFT JOIN users u ON u.id=a.created_by
       ORDER BY a.created_at`),
   ]);
@@ -397,12 +397,15 @@ async function details(view: string | undefined, user: Actor) {
       .prepare(`SELECT t.id, t.trip_id AS tripId, t.loading_supervisor_id AS supervisorId,
         ls.name AS supervisorName, t.truck_number AS truckNumber,
         t.trees_loaded AS treesLoaded, t.departure_time AS departureTime,
-        t.notes, t.status, t.submitted_at AS submittedAt,
-        t.approved_at AS approvedAt, ru.name AS approvedByName
+        t.notes, CASE WHEN t.deleted_at IS NOT NULL THEN 'DELETED' ELSE t.status END AS status,
+        t.submitted_at AS submittedAt,
+        t.approved_at AS approvedAt, ru.name AS approvedByName,
+        t.deleted_at AS deletedAt, du.name AS deletedByName
       FROM loading_trips t
       JOIN loading_supervisors ls ON ls.id = t.loading_supervisor_id
       LEFT JOIN users ru ON ru.id = t.approved_by
-      ORDER BY CASE t.status WHEN 'PENDING' THEN 0 ELSE 1 END, t.submitted_at DESC`)
+      LEFT JOIN users du ON du.id = t.deleted_by
+      ORDER BY CASE WHEN t.deleted_at IS NOT NULL THEN 2 WHEN t.status='PENDING' THEN 0 ELSE 1 END, t.submitted_at DESC`)
       .all<Row>();
     const allocations = await database()
       .prepare(`SELECT a.id,a.loading_trip_id AS loadingTripId,t.trip_id AS tripId,

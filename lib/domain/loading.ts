@@ -9,10 +9,12 @@ export type LoadingTrip = {
   treesLoaded: number;
   departureTime: string;
   notes: string;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'DELETED';
   submittedAt: string;
   approvedAt: string | null;
   approvedByName: string | null;
+  deletedAt: string | null;
+  deletedByName: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -109,6 +111,8 @@ export function loadingSummary(target: number, trips: Pick<LoadingTrip, 'status'
   let approved = 0;
   let pending = 0;
   for (const trip of trips) {
+    // Only APPROVED trips carry quantities. DELETED (soft-deleted) trips are
+    // retained for history but contribute nothing — same as PENDING/REJECTED.
     if (trip.status === 'APPROVED') approved += Number(trip.treesLoaded);
     else if (trip.status === 'PENDING') pending += Number(trip.treesLoaded);
   }

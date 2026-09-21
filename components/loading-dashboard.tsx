@@ -31,6 +31,7 @@ type LoadingState = {
   target: number;
   summary: { target: number; approved: number; pending: number; remaining: number };
   trips: LoadingTripView[];
+  deletedTripsExcluded?: boolean;
 };
 
 const riyadhStamp = (iso: string) => {
@@ -184,6 +185,13 @@ export function LoadingDashboard({ initialState }: { initialState: LoadingState 
               </article>
             ))}
           </div>
+
+          {state.deletedTripsExcluded && (
+            <div className="notice" role="status">
+              One or more of your submitted trips were removed by an administrator.
+              They remain in the project history but no longer count toward Completed or Remaining trees.
+            </div>
+          )}
 
           <section className="card">
             <div className="card-heading">

@@ -12,6 +12,7 @@ import {
   loadingState,
   reviewTrip,
   allocateTrip,
+  tripDelete,
 } from '@/lib/server/loading';
 import { getState, getStateDetail, mutate } from '@/lib/server/service';
 import { buildProgressPdf } from '@/lib/server/pdf';
@@ -75,6 +76,9 @@ async function handler(req: Request) {
     // Approval + block allocation: atomic, exact-sum, admin-only.
     if (path === 'trip-allocate' && req.method === 'POST')
       return reply(await allocateTrip(req, user));
+    // Soft delete: marks DELETED, keeps the audit/history record.
+    if (path === 'trip-delete' && req.method === 'POST')
+      return reply(await tripDelete(req, user));
     if (user.role === 'VIEWER' && (req.method !== 'GET' || path !== 'state'))
       throw new HttpError(403, 'Viewer access is read-only and limited to approved pages.');
     if (path === 'finance.xlsx' && req.method === 'GET') {

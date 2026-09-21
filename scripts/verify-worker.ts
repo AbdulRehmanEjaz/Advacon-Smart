@@ -253,6 +253,7 @@ try {
   await execSqlFile(d1, new URL('../d1/migrations/0008_viewer_accounts.sql', import.meta.url));
   await execSqlFile(d1, new URL('../d1/migrations/0009_loading_supervisors.sql', import.meta.url));
   await execSqlFile(d1, new URL('../d1/migrations/0010_loading_trip_allocations.sql', import.meta.url));
+  await execSqlFile(d1, new URL('../d1/migrations/0011_loading_trip_deletion.sql', import.meta.url));
   assert.equal(
     (await d1.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name IN ('loading_supervisors','loading_trips','loading_trip_block_allocations','viewer_accounts')").first<{ count: number }>())?.count,
     4,
@@ -334,6 +335,7 @@ try {
     target: number;
     summary: { target: number; approved: number; pending: number; remaining: number };
     trips: { id: string; tripId: string; status: string; treesLoaded: number }[];
+    deletedTripsExcluded?: boolean;
   };
   assert.equal(loaderState.user.role, 'LOADING_SUPERVISOR');
   assert.equal(loaderState.user.id, 'initial-loader');
@@ -462,6 +464,35 @@ try {
   // Loader cannot approve/allocate or touch admin endpoints.
   assert.equal((await post(fetcher, 'trip-allocate', { id: 'x', allocations: [{ blockId: 'A01', quantity: 1 }] }, rotatedCookie)).status, 403);
   assert.equal((await fetcher(origin + '/api/state?view=translocation', { headers: { Cookie: rotatedCookie } })).status, 403);
+
+  // --- Soft delete: history retained, all progress effects removed ---------
+  const beforeDelete = await fetchAdminState();
+  const approvedBefore = beforeDelete.loadingTrips!.filter((t) => t.status === 'APPROVED').reduce((sum, t) => sum + t.treesLoaded, 0);
+  const deleteResponse = await post(fetcher, 'trip-delete', { id: pendingTrip!.id }, admin.cookie);
+  assert.equal(deleteResponse.status, 200, await deleteResponse.clone().text());
+  const afterDelete = await fetchAdminState();
+  const deletedTrip = afterDelete.loadingTrips!.find((t) => t.id === pendingTrip!.id);
+  assert.ok(deletedTrip, 'soft-deleted trip stays in admin history');
+  assert.equal(deletedTrip!.status, 'DELETED');
+  const approvedAfter = afterDelete.loadingTrips!.filter((t) => t.status === 'APPROVED').reduce((sum, t) => sum + t.treesLoaded, 0);
+  assert.equal(approvedAfter, approvedBefore - 250, 'deleted trip leaves Completed Trees');
+  assert.equal(afterDelete.loadingAllocations!.filter((item) => item.loadingTripId === pendingTrip!.id).length, 1, 'allocation rows retained for history');
+  // Loader no longer sees the deleted trip and its quantities drop out.
+  const loaderAfterDelete = (await (await fetcher(origin + '/api/loading-state', { headers: { Cookie: rotatedCookie } })).json()) as typeof loaderState;
+  assert.equal(loaderAfterDelete.trips.some((t) => t.tripId === pendingTrip!.tripId), false, 'deleted trip hidden from loader');
+  assert.deepEqual(loaderAfterDelete.summary, { target: 10000, approved: 0, pending: 0, remaining: 10000 });
+  assert.equal(loaderAfterDelete.deletedTripsExcluded, true);
+  // Deleting again fails safely.
+  assert.equal((await post(fetcher, 'trip-delete', { id: pendingTrip!.id }, admin.cookie)).status, 409);
+  // Loader cannot delete trips.
+  assert.equal((await post(fetcher, 'trip-delete', { id: 'x' }, rotatedCookie)).status, 403);
+  // The global T sequence continues normally after deletion: a new trip for
+  // the same truck/minute pattern must not collide with the deleted ID.
+  const newTrip = await post(fetcher, 'loading-trip', { truckNumber: '1234', treesLoaded: 100 }, rotatedCookie);
+  assert.equal(newTrip.status, 200, await newTrip.clone().text());
+  const newTripId = ((await newTrip.json()) as { tripId: string }).tripId;
+  assert.match(newTripId, /^1234-\d{2}\/\d{2}-\d{2}:\d{2}-T\d+$/);
+  assert.notEqual(newTripId, pendingTrip!.tripId, 'deleted trip ID is never reused');
 
     assert.equal((await fetcher(origin + '/api/state?view=timesheet', { headers: { Cookie: supervisor.cookie } })).status, 403);
   assert.equal((await fetcher(origin + '/api/state?view=timesheet&detail=1', { headers: { Cookie: supervisor.cookie } })).status, 403);

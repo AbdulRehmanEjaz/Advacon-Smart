@@ -1159,6 +1159,10 @@ h1 {
   background: #fdeeea;
   color: #bd5b49;
 }
+.badge.deleted {
+  background: #efeff1;
+  color: #666a73;
+}
 .notice {
   padding: 12px 16px;
   border-radius: 10px;

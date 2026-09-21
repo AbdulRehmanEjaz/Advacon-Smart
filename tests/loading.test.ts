@@ -55,6 +55,16 @@ await test('approving pending trees reduces the remaining target', () => {
   assert.equal(after.remaining, 7500);
 });
 
+await test('deleted trips never affect the target math', () => {
+  const summary = loadingSummary(10000, [
+    trip('APPROVED', 2000),
+    trip('DELETED', 2000),
+  ]);
+  assert.equal(summary.approved, 2000, 'only APPROVED trips count');
+  assert.equal(summary.remaining, 8000, 'soft-deleted quantities leave Remaining Trees');
+  assert.equal(summary.pending, 0);
+});
+
 await test('rejected trips never affect the target math', () => {
   const summary = loadingSummary(10000, [trip('REJECTED', 999)]);
   assert.equal(summary.approved, 0);
