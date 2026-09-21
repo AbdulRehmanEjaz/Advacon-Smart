@@ -1,10 +1,18 @@
 import { z } from 'zod';
 import { database, first, id, json, now, statement } from './d1';
 import { admin, type Actor, HttpError } from './auth';
+import { loadCore } from './service';
 import {
   buildTripId,
   loadingSummary,
+  LOADING_KPI_ACTIVITY,
+  validateAllocations,
 } from '../domain/loading';
+import {
+  calculateKpiProgress,
+  readiness,
+  targetFor,
+} from '../domain/calculations';
 import { riyadhDeparture } from '../domain/date';
 
 type Row = Record<string, string | number | boolean | null>;
@@ -183,16 +191,21 @@ export async function createTrip(req: Request, user: Actor) {
   throw new HttpError(409, 'Too many trips in the same minute. Try again shortly.');
 }
 
+// Rejection stays a single decision: no quantities move, so no allocation is
+// needed. Approval REQUIRES the block allocation and lives in allocateTrip —
+// a trip can never enter progress by a bare "approve" click.
 const reviewSchema = z.object({
   id: z.string(),
-  decision: z.enum(['APPROVED', 'REJECTED']),
+  decision: z.literal('REJECTED'),
 });
 
 export async function reviewTrip(req: Request, user: Actor) {
   admin(user);
   const body: unknown = await req.json();
   const data = reviewSchema.parse(body);
-  const row = await first<Row>('SELECT * FROM loading_trips WHERE id=?', data.id);
+  // Aliased select (tripSql) — tripFromRow expects camelCase keys; a bare
+  // SELECT * returns snake_case and silently yields NaN quantities.
+  const row = await first<Row>(`${tripSql} WHERE t.id=?`, data.id);
   if (!row) throw new HttpError(404, 'Trip not found.');
   const before = tripFromRow(row);
   if (before.status !== 'PENDING')
@@ -207,6 +220,129 @@ export async function reviewTrip(req: Request, user: Actor) {
     timestamp,
     data.id,
   ).run();
-  await auditStatement(user, data.decision === 'APPROVED' ? 'TRIP_APPROVED' : 'TRIP_REJECTED', before.tripId, before, { status: data.decision });
+  await auditStatement(user, 'TRIP_REJECTED', before.tripId, before, { status: data.decision });
+  return { ok: true };
+}
+
+const allocationSchema = z.object({
+  id: z.string().min(1),
+  allocations: z
+    .array(
+      z.object({
+        blockId: z.string().min(1),
+        quantity: z.number().int().min(1).max(100000),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
+/**
+ * Admin approval of a pending loading trip WITH its block allocation.
+ *
+ * Hard rules enforced here (never trusted from the client):
+ *  1. Trip must still be PENDING.
+ *  2. Allocations must sum EXACTLY to trees_loaded (no under/over assignment).
+ *  3. Existing project controls apply: blocks must exist, not be on hold,
+ *     have capacity for the assigned trees, and the existing Tree
+ *     Translocation "Loading Activities" KPI must not be exceeded.
+ *  4. Atomicity: one D1 batch flips the trip AND writes the allocation rows.
+ *     The guarded UPDATE (… WHERE status='PENDING') is the race fence — a
+ *     second admin's batch writes zero rows and fails safely with 409, so a
+ *     trip can never be approved twice nor allocated twice.
+ *  5. Progress impact: allocations (sum === trip quantity) feed the existing
+ *     KPI engine exactly once; pending/rejected trips feed nothing.
+ */
+export async function allocateTrip(req: Request, user: Actor) {
+  admin(user);
+  const body: unknown = await req.json();
+  const data = allocationSchema.parse(body);
+  // Aliased select (tripSql) — see reviewTrip; treesLoaded must be a real
+  // number or the exact-sum rule below would pass vacuously.
+  const row = await first<Row>(`${tripSql} WHERE t.id=?`, data.id);
+  if (!row) throw new HttpError(404, 'Trip not found.');
+  const trip = tripFromRow(row);
+  if (trip.status !== 'PENDING')
+    throw new HttpError(409, 'This trip has already been reviewed. Refresh the page.');
+
+  const allocationError = validateAllocations(trip.treesLoaded, data.allocations);
+  if (allocationError) throw new HttpError(400, allocationError);
+
+  const core = await loadCore();
+  for (const allocation of data.allocations) {
+    const block = core.blocks.find((item) => item.id === allocation.blockId);
+    if (!block) throw new HttpError(400, `Block ${allocation.blockId} does not exist.`);
+    if (block.hold)
+      throw new HttpError(400, `Block ${block.id} is on administrative hold — release it before assigning trees.`);
+    const blockState = readiness(block, core.submissions, core.loadingAllocations);
+    if (blockState.remaining != null && allocation.quantity > blockState.remaining)
+      throw new HttpError(
+        400,
+        `Block ${block.id} has only ${Math.max(0, blockState.remaining)} tree slots remaining.`,
+      );
+  }
+  const activity = core.packages
+    .flatMap((workPackage) => workPackage.activities)
+    .find((candidate) => candidate.id === LOADING_KPI_ACTIVITY);
+  if (activity) {
+    const official = calculateKpiProgress(
+      core.packages,
+      core.openingBalances,
+      core.submissions,
+      core.settings,
+      undefined,
+      core.loadingAllocations,
+    );
+    const target = targetFor(activity, core.settings) || 100;
+    const current = official.totals[LOADING_KPI_ACTIVITY] || 0;
+    if (current + trip.treesLoaded > target + 0.000001)
+      throw new HttpError(
+        400,
+        `${activity.name} has only ${Math.max(0, target - current).toLocaleString()} ${activity.unit} remaining.`,
+      );
+  }
+
+  const timestamp = now();
+  const results = await database().batch([
+    statement(
+      `UPDATE loading_trips SET status='APPROVED',approved_at=?,approved_by=?,updated_at=?
+       WHERE id=? AND status='PENDING'`,
+      timestamp,
+      user.id,
+      timestamp,
+      data.id,
+    ),
+    ...data.allocations.map((allocation) =>
+      statement(
+        `INSERT INTO loading_trip_block_allocations
+         (id,loading_trip_id,block_id,quantity,created_by,created_at)
+         SELECT ?, t.id, ?, ?, ?, ? FROM loading_trips t
+         WHERE t.id=? AND t.approved_by=? AND t.approved_at=?`,
+        id(),
+        allocation.blockId,
+        allocation.quantity,
+        user.id,
+        timestamp,
+        data.id,
+        user.id,
+        timestamp,
+      )),
+  ]);
+  const updateChanges = Number(results[0].meta?.changes ?? 0);
+  const allocationChanges = results
+    .slice(1)
+    .reduce((sum, result) => sum + Number(result.meta?.changes ?? 0), 0);
+  if (updateChanges === 0 || allocationChanges !== data.allocations.length)
+    throw new HttpError(
+      409,
+      'This trip was just reviewed by another administrator. Refresh the page.',
+    );
+
+  await auditStatement(user, 'TRIP_APPROVED', trip.tripId, trip, {
+    status: 'APPROVED',
+    treesLoaded: trip.treesLoaded,
+    allocations: data.allocations,
+    approvedAt: timestamp,
+  });
   return { ok: true };
 }

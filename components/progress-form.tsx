@@ -96,6 +96,8 @@ export function ProgressForm({
     state.openingBalances,
     state.submissions,
     state.settings!,
+    undefined,
+    state.loadingAllocations,
   );
   const needsBlock = ['translocation', 'new-trees'].includes(packageId);
   const finalCompletion = packageId === 'final-completion';

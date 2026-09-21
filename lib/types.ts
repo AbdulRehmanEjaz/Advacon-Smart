@@ -2,8 +2,8 @@ import type { PackageDefinition, Settings } from './domain/baseline';
 import type { Block, OpeningBalance, Submission } from './domain/calculations';
 import type { AttendanceRecord, Resource } from './domain/attendance';
 import type { FuelRecord, InvoicePoRecord } from './domain/costs';
-import type { LoadingTrip } from './domain/loading';
-export type { LoadingTrip };
+import type { LoadingTrip, LoadingAllocation } from './domain/loading';
+export type { LoadingTrip, LoadingAllocation, Block };
 export type Role = 'ADMIN' | 'FOREMAN' | 'VIEWER' | 'LOADING_SUPERVISOR';
 
 export type User = {
@@ -63,6 +63,7 @@ export type State = {
   fuelRecords?: FuelRecord[];
   invoicePoRecords?: InvoicePoRecord[];
   loadingTrips?: LoadingTrip[];
+  loadingAllocations?: LoadingAllocation[];
 };
 export async function post(path: string, body: unknown) {
   const r = await fetch(`/api/${path}`, {

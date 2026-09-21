@@ -27,6 +27,7 @@ import {
   type Resource,
 } from '../domain/attendance';
 import { vatBreakdown, type FuelRecord, type InvoicePoRecord } from '../domain/costs';
+import type { LoadingAllocation } from '../domain/loading';
 
 type Row = Record<string, string | number | boolean | null>;
 type Core = {
@@ -38,6 +39,7 @@ type Core = {
   users: User[];
   inspections: Inspection[];
   openingBalances: OpeningBalance[];
+  loadingAllocations: LoadingAllocation[];
 };
 
 export const serial = <T>(value: unknown): T => JSON.parse(JSON.stringify(value));
@@ -79,7 +81,9 @@ FROM daily_submissions s JOIN users u ON u.id = s.supervisor_id
 ${filtered ? 'WHERE s.supervisor_id = ?' : ''}
 ORDER BY s.created_at DESC`;
 
-async function loadCore(supervisorId?: string): Promise<Core> {
+/** Exported for the loading module: allocation approval reuses the same
+ * authoritative core (blocks, submissions, KPI definitions, allocations). */
+export async function loadCore(supervisorId?: string): Promise<Core> {
   const db = database();
   const filtered = Boolean(supervisorId);
   const bind = (sql: string) =>
@@ -126,6 +130,16 @@ async function loadCore(supervisorId?: string): Promise<Core> {
       due_date AS dueDate,closed_at AS closedAt,created_at AS createdAt FROM observations`),
     db.prepare(`SELECT activity_id AS activityId,quantity,source,effective_at AS effectiveAt
       FROM kpi_opening_balances ORDER BY activity_id`),
+    // Approved loading-trip block allocations. Rows are only written in the
+    // same atomic batch that approves the trip, so every row here belongs to
+    // an APPROVED trip and contributes to the existing KPI engine.
+    db.prepare(`SELECT a.id,a.loading_trip_id AS loadingTripId,t.trip_id AS tripId,
+      a.block_id AS blockId,a.quantity,a.created_by AS createdBy,
+      u.name AS createdByName,a.created_at AS createdAt
+      FROM loading_trip_block_allocations a
+      JOIN loading_trips t ON t.id=a.loading_trip_id
+      LEFT JOIN users u ON u.id=a.created_by
+      ORDER BY a.created_at`),
   ]);
   const rows = results.map((result) => result.results as Row[]);
   const settingsRow = rows[0][0];
@@ -235,6 +249,16 @@ async function loadCore(supervisorId?: string): Promise<Core> {
       quantity: Number(entry.quantity),
       source: String(entry.source),
       effectiveAt: String(entry.effectiveAt),
+    })),
+    loadingAllocations: rows[16].map((entry) => ({
+      id: String(entry.id),
+      loadingTripId: String(entry.loadingTripId),
+      tripId: String(entry.tripId),
+      blockId: String(entry.blockId),
+      quantity: Number(entry.quantity),
+      createdBy: String(entry.createdBy),
+      createdByName: String(entry.createdByName || ''),
+      createdAt: String(entry.createdAt),
     })),
   };
 }
@@ -468,7 +492,7 @@ function checkPlacement(
     .filter((item) => ['placed', 'planted'].includes(item.activityId))
     .reduce((sum, item) => sum + item.quantity, 0);
   if (!trees) return;
-  const state = readiness(block, core.submissions);
+  const state = readiness(block, core.submissions, core.loadingAllocations);
   const problems = [
     ...(!state.ready ? state.reasons : []),
     ...(state.remaining == null
@@ -495,6 +519,8 @@ function validateCandidate(
       {
         const totals = approvedTotals(
           submissions.filter((item) => item.blockId === block.id),
+          undefined,
+          core.loadingAllocations.filter((entry) => entry.blockId === block.id),
         );
         if (Object.keys(totals).some((key) => !key.startsWith('kpi-')))
           assertStageOrder(totals);
@@ -510,6 +536,8 @@ function validateCandidate(
     core.openingBalances,
     submissions,
     core.settings,
+    undefined,
+    core.loadingAllocations,
   ).totals;
   for (const activity of core.packages.flatMap((item) => item.activities))
     if (
@@ -523,6 +551,8 @@ function validateCandidate(
   for (const block of core.blocks) {
     const totalsForBlock = approvedTotals(
       submissions.filter((item) => item.blockId === block.id),
+      undefined,
+      core.loadingAllocations.filter((entry) => entry.blockId === block.id),
     );
     if ((totalsForBlock.commissioned || 0) > 0)
       requireThat(
@@ -547,6 +577,8 @@ function validateSubmittedRemaining(
     core.openingBalances,
     core.submissions,
     core.settings,
+    undefined,
+    core.loadingAllocations,
   );
   for (const item of items) {
     const activity = core.packages
@@ -1019,7 +1051,7 @@ export async function mutate(path: string, req: Request, user: Actor) {
       ? core.blocks.find((block) => block.id === submission.blockId)
       : undefined;
     const beforeBlock = sourceBlock
-      ? readiness(sourceBlock, core.submissions)
+      ? readiness(sourceBlock, core.submissions, core.loadingAllocations)
       : null;
     if (data.quantity > 0 && beforeBlock)
       checkPlacement(
@@ -1031,7 +1063,7 @@ export async function mutate(path: string, req: Request, user: Actor) {
       );
     validateCandidate(core, candidate, user, data.overrideReason);
     if (beforeBlock) {
-      const afterBlock = readiness(beforeBlock, candidate);
+      const afterBlock = readiness(beforeBlock, candidate, core.loadingAllocations);
       requireThat(
         !(beforeBlock.ready && !afterBlock.ready && beforeBlock.occupied > 0),
         'This correction would remove readiness from an occupied block. Place the block on hold and resolve the safety issue first.',
@@ -1215,7 +1247,7 @@ export async function mutate(path: string, req: Request, user: Actor) {
     requireThat(peers.filter((item) => item.zoneId === zone.id).reduce((sum, item) => sum + (item.capacity || 0), 0) + (data.capacity || 0) <= zone.capacity, 'Block allocations exceed the zone capacity.');
     requireThat(peers.reduce((sum, item) => sum + (item.supportRows || 0), 0) + (data.supportRows || 0) <= core.settings.rowTarget, 'Row allocations exceed the project baseline.');
     requireThat(peers.reduce((sum, item) => sum + Number(item.irrigationTarget || 0), 0) + Number(data.irrigationTarget || 0) <= core.settings.irrigationTarget, 'Irrigation allocations exceed the baseline.');
-    const occupied = readiness(before, core.submissions).occupied;
+    const occupied = readiness(before, core.submissions, core.loadingAllocations).occupied;
     requireThat(data.capacity == null ? occupied === 0 : data.capacity >= occupied, 'Capacity cannot be reduced below occupied capacity.');
     await database().batch([
       statement('UPDATE blocks SET capacity=?,irrigation_target=?,support_rows=?,hold=? WHERE id=?', data.capacity,data.irrigationTarget,data.supportRows,Number(data.hold),data.id),

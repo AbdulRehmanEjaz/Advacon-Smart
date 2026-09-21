@@ -3,6 +3,11 @@ import type {
   PackageDefinition,
   Settings,
 } from './baseline';
+import {
+  LOADING_ALLOCATED,
+  LOADING_KPI_ACTIVITY,
+  type AllocationInput,
+} from './loading';
 export type Item = {
   id: string;
   activityId: string;
@@ -52,8 +57,17 @@ export function targetFor(a: ActivityDefinition, settings: Settings): number {
 export function approvedTotals(
   submissions: Submission[],
   asOf?: string,
+  loading?: AllocationInput[],
 ): Record<string, number> {
   const totals: Record<string, number> = {};
+  // Approved loading-trip block allocations represent trees delivered into
+  // the assigned block. They live under a dedicated key — never inside the
+  // strict stage chains (e.g. tree_inspected → loaded → placed) — so they
+  // surface as block progress and capacity usage without constraining, or
+  // being constrained by, the foreman submission stage order.
+  for (const allocation of loading || [])
+    totals[LOADING_ALLOCATED] =
+      (totals[LOADING_ALLOCATED] || 0) + Number(allocation.quantity);
   for (const submission of submissions) {
     if (submission.status !== 'APPROVED') continue;
     const approval = submission.approvals.find(
@@ -112,6 +126,7 @@ export function calculateKpiProgress(
   submissions: Submission[],
   settings: Settings,
   asOf?: string,
+  loading?: AllocationInput[],
 ) {
   const approved = approvedTotals(submissions, asOf);
   const opening = openingBalances.reduce<Record<string, number>>((totals, item) => {
@@ -122,6 +137,14 @@ export function calculateKpiProgress(
   const totals = { ...opening };
   for (const [activityId, quantity] of Object.entries(approved))
     totals[activityId] = (totals[activityId] || 0) + quantity;
+  // Approved loading trips contribute through their block allocations, whose
+  // sum equals the trip quantity exactly (enforced at approval). Adding the
+  // allocation total to the existing "Loading Activities" KPI once means the
+  // trip quantity is counted exactly one time — never per block and per trip.
+  if (loading?.length)
+    totals[LOADING_KPI_ACTIVITY] =
+      (totals[LOADING_KPI_ACTIVITY] || 0) +
+      loading.reduce((sum, allocation) => sum + Number(allocation.quantity), 0);
   const groups = packages
     .filter((item) => item.active !== false)
     .map((workPackage) => {
@@ -172,9 +195,15 @@ export function plannedProgress(
     return n + fraction * Number(a.weight);
   }, 0);
 }
-export function readiness(block: Block, submissions: Submission[]) {
+export function readiness(
+  block: Block,
+  submissions: Submission[],
+  loading?: AllocationInput[],
+) {
   const totals = approvedTotals(
     submissions.filter((s) => s.blockId === block.id),
+    undefined,
+    loading?.filter((allocation) => allocation.blockId === block.id),
   );
   const irrigation =
     (totals.commissioned || 0) >= 1 && (totals.passed || 0) >= 1;
@@ -186,7 +215,8 @@ export function readiness(block: Block, submissions: Submission[]) {
       (k) => (totals[k] || 0) >= r,
     ) &&
     ['holes', 'foundations', 'posts'].every((k) => (totals[k] || 0) >= r * 5);
-  const occupied = (totals.placed || 0) + (totals.planted || 0);
+  const occupied =
+    (totals.placed || 0) + (totals.planted || 0) + (totals[LOADING_ALLOCATED] || 0);
   const ready = !block.hold && irrigation && support;
   const status = block.hold
     ? 'HOLD'

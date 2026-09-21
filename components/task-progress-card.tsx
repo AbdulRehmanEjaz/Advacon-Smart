@@ -60,6 +60,8 @@ export function TaskProgressCard({ state }: { state: State }) {
       state.openingBalances,
       state.submissions,
       settings,
+      undefined,
+      state.loadingAllocations,
     );
     return work.map((task) => ({
       name: task.name,

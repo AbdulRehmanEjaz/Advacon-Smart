@@ -7,6 +7,8 @@ export function ApprovedKpiProgress({ state }: { state: State }) {
     state.openingBalances,
     state.submissions,
     state.settings!,
+    undefined,
+    state.loadingAllocations,
   );
   return (
     <article className="card kpi-detail-card">

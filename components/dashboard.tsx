@@ -263,6 +263,8 @@ function AdminDashboard({
       state.openingBalances,
       state.submissions,
       settings,
+      undefined,
+      state.loadingAllocations,
     );
   const production = productivity(
     state.submissions,
@@ -343,7 +345,7 @@ export function ActivityList({ state }: { state: State }) {
   );
 }
 export function BlockReadinessOverview({ state, preview }: { state: State; preview: boolean }) {
- const blocks = state.blocks.map((b) => readiness(b, state.submissions));
+ const blocks = state.blocks.map((b) => readiness(b, state.submissions, state.loadingAllocations));
  const href = (view: string) => preview ? '/design-preview?view=' + view : '/workspace/' + view;
  return (<article className="card readiness-card">
             <div className="card-heading">

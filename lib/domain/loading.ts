@@ -40,6 +40,60 @@ export function buildTripId(
   return `${truckToken(truckNumber)}-${departure.datePart}-${departure.timePart}-T${sequence}`;
 }
 
+/**
+ * Block allocation row for an APPROVED loading trip. The trip is the source
+ * transaction; allocations distribute exactly its trees_loaded quantity
+ * (sum === trees_loaded, enforced at approval time).
+ */
+export type LoadingAllocation = {
+  id: string;
+  loadingTripId: string;
+  tripId: string;
+  blockId: string;
+  quantity: number;
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+};
+
+export type AllocationInput = { blockId: string; quantity: number };
+
+/**
+ * The existing Tree Translocation KPI activity that approved loading trips
+ * feed ("Loading Activities", package 03 — Tree Translocation & Placement).
+ * Found in the KPI definitions; never a new activity.
+ */
+export const LOADING_KPI_ACTIVITY = 'kpi-translocation-loading';
+/** Block-totals key for approved loading-trip allocation quantities. */
+export const LOADING_ALLOCATED = 'loading_allocated';
+
+/**
+ * Hard business rule: allocations must sum EXACTLY to the trip quantity.
+ * Returns null when valid, otherwise a human-readable reason.
+ */
+export function validateAllocations(
+  tripQuantity: number,
+  allocations: AllocationInput[],
+): string | null {
+  if (!allocations.length) return 'Assign the trees to at least one block.';
+  const seen = new Set<string>();
+  let sum = 0;
+  for (const allocation of allocations) {
+    if (!allocation.blockId) return 'Select a block for every allocation row.';
+    if (seen.has(allocation.blockId))
+      return `Block ${allocation.blockId} is assigned more than once — combine its quantities into one row.`;
+    seen.add(allocation.blockId);
+    if (!Number.isInteger(Number(allocation.quantity)) || Number(allocation.quantity) <= 0)
+      return 'Every allocation must be a positive whole number of trees.';
+    sum += Number(allocation.quantity);
+  }
+  if (sum > tripQuantity)
+    return `Assigned ${sum} exceeds the trip total of ${tripQuantity} trees.`;
+  if (sum < tripQuantity)
+    return `Remaining to assign: ${tripQuantity - sum} of ${tripQuantity} trees.`;
+  return null;
+}
+
 export type LoadingSummary = {
   target: number;
   approved: number;

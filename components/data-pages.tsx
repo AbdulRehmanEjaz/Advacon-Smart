@@ -57,6 +57,8 @@ function WorkPackagesTabSection({ state }: { state: State }) {
     state.openingBalances,
     state.submissions,
     state.settings!,
+    undefined,
+    state.loadingAllocations,
   );
   return (
     <div className="dashboard-primary-grid kpi-packages-grid">
@@ -88,6 +90,8 @@ export function DataPages(props: Props) {
           {props.detailLoading && !state.loadingTrips ? null : state.loadingTrips?.length ? (
             <LoadingTripsCard
               trips={state.loadingTrips}
+              allocations={state.loadingAllocations}
+              blocks={state.blocks}
               admin={admin}
               preview={preview}
               refresh={refresh}
@@ -146,7 +150,7 @@ export function DataPages(props: Props) {
               {state.blocks
                 .filter((b) => b.zoneId === zone.id)
                 .map((b) => {
-                  const r = readiness(b, state.submissions);
+                  const r = readiness(b, state.submissions, state.loadingAllocations);
                   return (
                     <div className="form-section" key={b.id} id={b.id}>
                       <div className="card-heading">
@@ -242,6 +246,8 @@ export function DataPages(props: Props) {
         state.openingBalances,
         state.submissions,
         settings,
+        undefined,
+        state.loadingAllocations,
       ).work[0],
       tree = pkg.id === 'translocation',
       newTree = pkg.id === 'new-trees',
@@ -306,6 +312,8 @@ export function DataPages(props: Props) {
         {tree && props.detailLoading && !state.loadingTrips ? null : tree && state.loadingTrips?.length ? (
           <LoadingTripsCard
             trips={state.loadingTrips}
+            allocations={state.loadingAllocations}
+            blocks={state.blocks}
             admin={admin}
             preview={preview}
             refresh={refresh}
@@ -420,6 +428,8 @@ function OfficialReport({ state }: { state: State }) {
     state.openingBalances,
     state.submissions,
     state.settings!,
+    undefined,
+    state.loadingAllocations,
   );
   return (
     <section className="card">

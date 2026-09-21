@@ -9,6 +9,13 @@ export function viewerState(state: State): State {
     packages: state.packages,
     openingBalances: state.openingBalances.map(({ activityId, quantity, effectiveAt }) => ({ activityId, quantity, effectiveAt, source: '' })),
     blocks: [],
+    // Approved loading-trip block allocations: aggregated quantities only.
+    // Without them the viewer's KPI percentages would silently diverge from
+    // the admin's official numbers (trips feed "Loading Activities").
+    loadingAllocations: (state.loadingAllocations || []).map((row) => ({
+      id: '', loadingTripId: '', tripId: '', blockId: row.blockId,
+      quantity: row.quantity, createdBy: '', createdByName: '', createdAt: '',
+    })),
     submissions: state.submissions.filter((row) => row.status === 'APPROVED').map((row) => ({
       id: row.id, status: row.status, workDate: row.workDate, createdAt: row.createdAt,
       packageId: row.packageId, blockId: null, version: 0, supervisorId: '', supervisor: { name: '' },

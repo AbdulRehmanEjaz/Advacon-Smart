@@ -7,7 +7,7 @@ import { riyadhDate } from '../domain/date';
 import type { State } from '../types';
 
 type ReportState = Pick<State, 'packages' | 'openingBalances' | 'submissions' | 'settings'> &
-  Partial<Pick<State, 'blocks'>>;
+  Partial<Pick<State, 'blocks' | 'loadingAllocations'>>;
 
 const PAGE_W = 595;
 const PAGE_H = 842;
@@ -55,9 +55,11 @@ export function buildProgressPdf(state: ReportState, generatedAt = new Date()) {
     state.openingBalances,
     state.submissions,
     state.settings!,
+    undefined,
+    state.loadingAllocations,
   );
   const pending = state.submissions.filter((item) => item.status === 'WAITING').length;
-  const blockStates = (state.blocks || []).map((block) => readiness(block, state.submissions));
+  const blockStates = (state.blocks || []).map((block) => readiness(block, state.submissions, state.loadingAllocations));
   const production = productivity(
     state.submissions,
     'kpi-translocation-placement',

@@ -81,6 +81,8 @@ type State = {
   settings: import('../lib/domain/baseline').Settings;
   users?: { id: string; name: string }[];
   inspections?: { number: string }[];
+  loadingTrips?: { id: string; tripId: string; status: string; treesLoaded: number }[];
+  loadingAllocations?: { loadingTripId: string; tripId: string; blockId: string; quantity: number }[];
 };
 async function login(fetcher: typeof fetch, pin: string, ip = `test-${pin}`) {
   const started = performance.now();
@@ -250,9 +252,10 @@ try {
   );
   await execSqlFile(d1, new URL('../d1/migrations/0008_viewer_accounts.sql', import.meta.url));
   await execSqlFile(d1, new URL('../d1/migrations/0009_loading_supervisors.sql', import.meta.url));
+  await execSqlFile(d1, new URL('../d1/migrations/0010_loading_trip_allocations.sql', import.meta.url));
   assert.equal(
-    (await d1.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name IN ('loading_supervisors','loading_trips','viewer_accounts')").first<{ count: number }>())?.count,
-    3,
+    (await d1.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name IN ('loading_supervisors','loading_trips','loading_trip_block_allocations','viewer_accounts')").first<{ count: number }>())?.count,
+    4,
   );
   assert.equal(
     (await d1.prepare("SELECT COUNT(*) AS count FROM invoice_po_records WHERE id='legacy-po'").first<{ count: number }>())?.count,
@@ -393,7 +396,74 @@ try {
   const rotatedCookie = (rotatedLogin.headers.get('set-cookie') || '').split(';')[0];
   assert.equal((await fetcher(origin + '/api/loading-state', { headers: { Cookie: rotatedCookie } })).status, 200);
 
-  assert.equal((await fetcher(origin + '/api/state?view=timesheet', { headers: { Cookie: supervisor.cookie } })).status, 403);
+  // ------------------------------------------------------------------
+  // Admin Review & Assign: one pending trip + block allocations.
+  // Hard rules: exact-sum, atomic, single-count. Scenarios TEST 1-9.
+  // ------------------------------------------------------------------
+  async function fetchAdminState() {
+    const res = await fetcher(origin + '/api/state?view=approvals', { headers: { Cookie: admin.cookie } });
+    assert.equal(res.status, 200, await res.clone().text());
+    return (await res.json()) as { loadingTrips?: { id: string; tripId: string; status: string; treesLoaded: number }[]; loadingAllocations?: { loadingTripId: string; blockId: string; quantity: number }[] };
+  }
+  // Locate the pending smoke trip created by the loader flow above.
+  const pendingTrip = (await fetchAdminState()).loadingTrips?.find((trip) => trip.status === 'PENDING');
+  assert.ok(pendingTrip, 'pending loading trip should be visible in admin state');
+  assert.equal(pendingTrip!.treesLoaded, 250);
+  // TEST 4/5: under- and over-assignment are rejected; the trip stays PENDING
+  // and nothing moves anywhere.
+  assert.equal((await post(fetcher, 'trip-allocate', { id: pendingTrip!.id, allocations: [{ blockId: 'A01', quantity: 70 }, { blockId: 'A02', quantity: 20 }] }, admin.cookie)).status, 400);
+  assert.equal((await post(fetcher, 'trip-allocate', { id: pendingTrip!.id, allocations: [{ blockId: 'A01', quantity: 300 }] }, admin.cookie)).status, 400);
+  assert.equal((await fetchAdminState()).loadingTrips?.find((t) => t.id === pendingTrip!.id)?.status, 'PENDING');
+  // Loader math is untouched by failed attempts: remaining stays 10000.
+  assert.deepEqual(
+    ((await (await fetcher(origin + '/api/loading-state', { headers: { Cookie: rotatedCookie } })).json()) as typeof loaderState).summary,
+    { target: 10000, approved: 0, pending: 250, remaining: 10000 },
+  );
+  // TEST 2: exact split 70+30 = 250 must not be accepted — allocations must
+  // match THIS trip's 250 trees exactly, proving the rule binds to the trip.
+  assert.equal((await post(fetcher, 'trip-allocate', { id: pendingTrip!.id, allocations: [{ blockId: 'A01', quantity: 70 }, { blockId: 'A02', quantity: 30 }] }, admin.cookie)).status, 400);
+  // TEST 1: full assignment to one block → approval succeeds.
+  const allocateResponse = await post(fetcher, 'trip-allocate', { id: pendingTrip!.id, allocations: [{ blockId: 'A01', quantity: 250 }] }, admin.cookie);
+  assert.equal(allocateResponse.status, 200, await allocateResponse.clone().text());
+  const approvedState = await fetchAdminState();
+  const approvedTrip = approvedState.loadingTrips?.find((t) => t.id === pendingTrip!.id);
+  assert.equal(approvedTrip?.status, 'APPROVED');
+  const tripAllocations = approvedState.loadingAllocations?.filter(
+    (item) => item.loadingTripId === pendingTrip!.id,
+  );
+  assert.deepEqual(
+    tripAllocations?.map(({ blockId, quantity }) => ({ blockId, quantity })),
+    [{ blockId: 'A01', quantity: 250 }],
+  );
+  assert.ok(tripAllocations?.every((item) => (item as { tripId?: string }).tripId === pendingTrip!.tripId));
+  // Overall KPI contribution counted exactly once through allocations.
+  // The engine runs client-side over raw state, so recompute it here with the
+  // same authoritative domain function the UI uses.
+  const kpiAdmin = await state(fetcher, admin.cookie, '?view=dashboard');
+  const translocationKpi = calculateKpiProgress(
+    kpiAdmin.packages,
+    kpiAdmin.openingBalances,
+    kpiAdmin.submissions,
+    kpiAdmin.settings!,
+    undefined,
+    (kpiAdmin.loadingAllocations || []).map((entry) => ({ blockId: entry.blockId, quantity: entry.quantity })),
+  ).work.find((work) => work.id === 'translocation');
+  assert.ok(translocationKpi, 'translocation package must exist');
+  assert.equal(translocationKpi!.progress > 0, true, 'approved allocation must feed overall progress');
+  // TEST 6: the approved 250 now reduce the loader's remaining target.
+  assert.deepEqual(
+    ((await (await fetcher(origin + '/api/loading-state', { headers: { Cookie: rotatedCookie } })).json()) as typeof loaderState).summary,
+    { target: 10000, approved: 250, pending: 0, remaining: 9750 },
+  );
+  // TEST 8: approving the same trip again fails safely — no double counting.
+  const double = await post(fetcher, 'trip-allocate', { id: pendingTrip!.id, allocations: [{ blockId: 'A02', quantity: 250 }] }, admin.cookie);
+  assert.equal(double.status, 409);
+  assert.equal((await fetchAdminState()).loadingAllocations?.filter((item) => item.loadingTripId === pendingTrip!.id).length, 1);
+  // Loader cannot approve/allocate or touch admin endpoints.
+  assert.equal((await post(fetcher, 'trip-allocate', { id: 'x', allocations: [{ blockId: 'A01', quantity: 1 }] }, rotatedCookie)).status, 403);
+  assert.equal((await fetcher(origin + '/api/state?view=translocation', { headers: { Cookie: rotatedCookie } })).status, 403);
+
+    assert.equal((await fetcher(origin + '/api/state?view=timesheet', { headers: { Cookie: supervisor.cookie } })).status, 403);
   assert.equal((await fetcher(origin + '/api/state?view=timesheet&detail=1', { headers: { Cookie: supervisor.cookie } })).status, 403);
   const labourResponse = await post(fetcher, 'manpower', {
     action: 'save', code: 'LAB-001', name: 'Worker One', company: 'Site Services',
