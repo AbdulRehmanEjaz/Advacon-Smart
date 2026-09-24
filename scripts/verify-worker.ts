@@ -405,7 +405,7 @@ try {
   async function fetchAdminState() {
     const res = await fetcher(origin + '/api/state?view=approvals', { headers: { Cookie: admin.cookie } });
     assert.equal(res.status, 200, await res.clone().text());
-    return (await res.json()) as { loadingTrips?: { id: string; tripId: string; status: string; treesLoaded: number }[]; loadingAllocations?: { loadingTripId: string; blockId: string; quantity: number }[] };
+    return (await res.json()) as { loadingTrips?: { id: string; tripId: string; status: string; treesLoaded: number; allocations?: { blockId: string; quantity: number }[] }[]; loadingAllocations?: { loadingTripId: string; blockId: string; quantity: number }[] };
   }
   // Locate the pending smoke trip created by the loader flow above.
   const pendingTrip = (await fetchAdminState()).loadingTrips?.find((trip) => trip.status === 'PENDING');
@@ -496,7 +496,7 @@ try {
       false,
       `${view} detail must not resurrect deleted-trip allocations`,
     );
-    const deletedDetail = detail.loadingTrips?.find((t) => t.id === pendingTrip!.id);
+    const deletedDetail: { id: string; status: string; allocations?: { blockId: string; quantity: number }[] } | undefined = detail.loadingTrips?.find((t) => t.id === pendingTrip!.id);
     assert.ok(deletedDetail, `${view} detail keeps the deleted trip for history`);
     assert.equal(deletedDetail!.status, 'DELETED');
     assert.ok(deletedDetail!.allocations?.length, 'deleted trip keeps its allocation summary');
