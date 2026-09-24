@@ -22,7 +22,9 @@ function TripAllocations({
   allocations: LoadingAllocation[];
   blocks: Block[];
 }) {
-  const rows = allocations.filter((item) => item.loadingTripId === trip.id);
+  const rows = trip.allocations?.length
+    ? trip.allocations.map((row, index) => ({ id: `${trip.id}-${index}`, ...row }))
+    : allocations.filter((item) => item.loadingTripId === trip.id);
   if (!rows.length) return <small>—</small>;
   return (
     <span>

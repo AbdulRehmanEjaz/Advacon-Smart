@@ -410,15 +410,42 @@ async function details(view: string | undefined, user: Actor) {
     const allocations = await database()
       .prepare(`SELECT a.id,a.loading_trip_id AS loadingTripId,t.trip_id AS tripId,
         a.block_id AS blockId,a.quantity,a.created_by AS createdBy,
-        u.name AS createdByName,a.created_at AS createdAt
+        u.name AS createdByName,a.created_at AS createdAt,
+        t.deleted_at IS NOT NULL AS tripDeleted
         FROM loading_trip_block_allocations a
         JOIN loading_trips t ON t.id=a.loading_trip_id
         LEFT JOIN users u ON u.id=a.created_by
         ORDER BY a.created_at`)
       .all<Row>();
+    // Deleted trips keep their allocation summary on the trip row for history,
+    // while the shared loadingAllocations list — the KPI engine's input — only
+    // ever contains allocations of non-deleted trips. A deleted trip therefore
+    // contributes to nothing: Completed Trees, Remaining Trees, block progress,
+    // the Tree Translocation KPI or overall project progress.
+    const allocationRows = allocations.results as Row[];
+    const tripRows = trips.results as unknown as NonNullable<State['loadingTrips']>;
     return {
-      loadingTrips: trips.results as unknown as State['loadingTrips'],
-      loadingAllocations: allocations.results as unknown as State['loadingAllocations'],
+      loadingTrips: tripRows.map((trip) => ({
+        ...trip,
+        allocations: allocationRows
+          .filter((row) => row.loadingTripId === trip.id)
+          .map((row) => ({
+            blockId: String(row.blockId),
+            quantity: Number(row.quantity),
+          })),
+      })),
+      loadingAllocations: allocationRows
+        .filter((row) => !Number(row.tripDeleted))
+        .map((row) => ({
+          id: String(row.id),
+          loadingTripId: String(row.loadingTripId),
+          tripId: String(row.tripId),
+          blockId: String(row.blockId),
+          quantity: Number(row.quantity),
+          createdBy: String(row.createdBy),
+          createdByName: String(row.createdByName || ''),
+          createdAt: String(row.createdAt),
+        })) as unknown as State['loadingAllocations'],
     };
   }
   if (view === 'audit') {

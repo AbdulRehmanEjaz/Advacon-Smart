@@ -15,6 +15,10 @@ export type LoadingTrip = {
   approvedByName: string | null;
   deletedAt: string | null;
   deletedByName: string | null;
+  /** Original block allocations, embedded so deleted-trip history keeps its
+   * distribution even though those rows are excluded from loadingAllocations
+   * (and therefore from every KPI/progress calculation). */
+  allocations?: { blockId: string; quantity: number }[];
 };
 
 // ---------------------------------------------------------------------------

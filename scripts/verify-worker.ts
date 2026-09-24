@@ -476,7 +476,8 @@ try {
   assert.equal(deletedTrip!.status, 'DELETED');
   const approvedAfter = afterDelete.loadingTrips!.filter((t) => t.status === 'APPROVED').reduce((sum, t) => sum + t.treesLoaded, 0);
   assert.equal(approvedAfter, approvedBefore - 250, 'deleted trip leaves Completed Trees');
-  assert.equal(afterDelete.loadingAllocations!.filter((item) => item.loadingTripId === pendingTrip!.id).length, 1, 'allocation rows retained for history');
+  assert.equal(afterDelete.loadingAllocations!.filter((item) => item.loadingTripId === pendingTrip!.id).length, 0, 'deleted-trip allocations excluded from the engine input');
+  assert.equal(deletedTrip!.allocations?.length, 1, 'allocation rows retained on the trip for history');
   // Loader no longer sees the deleted trip and its quantities drop out.
   const loaderAfterDelete = (await (await fetcher(origin + '/api/loading-state', { headers: { Cookie: rotatedCookie } })).json()) as typeof loaderState;
   assert.equal(loaderAfterDelete.trips.some((t) => t.tripId === pendingTrip!.tripId), false, 'deleted trip hidden from loader');
@@ -484,6 +485,22 @@ try {
   assert.equal(loaderAfterDelete.deletedTripsExcluded, true);
   // Deleting again fails safely.
   assert.equal((await post(fetcher, 'trip-delete', { id: pendingTrip!.id }, admin.cookie)).status, 409);
+  // Deleted-trip allocations must not leak back into the KPI engine through
+  // the approvals/translocation detail fragments (they merge over core state
+  // in the client). The detail view keeps the DELETED row + its allocation
+  // summary for history, but loadingAllocations stays engine-clean.
+  for (const view of ['approvals', 'translocation']) {
+    const detail = (await (await fetcher(origin + `/api/state?view=${view}&detail=1`, { headers: { Cookie: admin.cookie } })).json()) as State;
+    assert.equal(
+      detail.loadingAllocations?.some((item) => item.loadingTripId === pendingTrip!.id),
+      false,
+      `${view} detail must not resurrect deleted-trip allocations`,
+    );
+    const deletedDetail = detail.loadingTrips?.find((t) => t.id === pendingTrip!.id);
+    assert.ok(deletedDetail, `${view} detail keeps the deleted trip for history`);
+    assert.equal(deletedDetail!.status, 'DELETED');
+    assert.ok(deletedDetail!.allocations?.length, 'deleted trip keeps its allocation summary');
+  }
   // Loader cannot delete trips.
   assert.equal((await post(fetcher, 'trip-delete', { id: 'x' }, rotatedCookie)).status, 403);
   // The global T sequence continues normally after deletion: a new trip for
