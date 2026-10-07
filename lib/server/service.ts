@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { canAccessView } from '../domain/permissions';
+import { progressRequiresBlock } from '../domain/progress-entry';
 import { viewerState } from './viewer-state';
 import { admin, viewerUserRow, type Actor, HttpError } from './auth';
 import { createCredential } from './credentials';
@@ -698,9 +699,9 @@ export async function mutate(path: string, req: Request, user: Actor) {
       return { id: String(duplicate.id) };
     }
     const core = await loadCore();
-    const sitePackage = ['translocation', 'new-trees'].includes(data.packageId);
+    const sitePackage = progressRequiresBlock(user.role, data.packageId, data.items);
     requireThat(
-      sitePackage ? Boolean(data.blockId) : !data.blockId,
+      sitePackage ? Boolean(data.blockId) : data.packageId === 'translocation' || !data.blockId,
       sitePackage
         ? 'Zone and Block are required for this Main Activity.'
         : 'Zone and Block do not apply to this Main Activity.',
@@ -714,7 +715,7 @@ export async function mutate(path: string, req: Request, user: Actor) {
       !['mobilization', 'drawings'].includes(workPackage.id),
       'This Main Activity is not available for site submissions.',
     );
-    requireThat(!sitePackage || block, 'Select a valid Zone and Block.');
+    requireThat(!data.blockId || block, 'Select a valid Zone and Block.');
     requireThat(
       new Set(data.items.map((item) => item.activityId)).size ===
         data.items.length,

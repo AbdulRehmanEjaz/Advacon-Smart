@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { type State, number, post } from '@/lib/types';
 import { calculateKpiProgress, targetFor, type Submission } from '@/lib/domain/calculations';
 import { riyadhDate } from '@/lib/domain/date';
+import { treeProgressEntry, type TreeProgressEntry } from '@/lib/domain/progress-entry';
 function fieldText(value: unknown) {
   return typeof value === 'string'
     ? value
@@ -65,6 +66,7 @@ export function ProgressForm({
     [state.packages],
   );
   const [packageId, setPackage] = useState(sitePackages[0]?.id || ''),
+    [treeEntry, setTreeEntry] = useState<TreeProgressEntry>('translocation'),
     [blockId, setBlock] = useState(''),
     [zone, setZone] = useState('A'),
     [workDate, setDate] = useState(riyadhDate()),
@@ -77,6 +79,7 @@ export function ProgressForm({
     if (open) {
       // oxlint-disable-next-line react/react-compiler -- Reset the draft only when the modal opens or selected record changes.
       setPackage(editing?.packageId || sitePackages[0]?.id || '');
+      setTreeEntry('translocation');
       setBlock(editing?.blockId || '');
       setZone(editing?.blockId?.[0] || 'A');
       setDate(editing?.workDate.slice(0, 10) || riyadhDate());
@@ -99,7 +102,12 @@ export function ProgressForm({
     undefined,
     state.loadingAllocations,
   );
-  const needsBlock = ['translocation', 'new-trees'].includes(packageId);
+  const splitTreeEntry = state.user.role === 'ADMIN' && packageId === 'translocation' && !editing;
+  const needsBlock = packageId === 'new-trees' ||
+    (packageId === 'translocation' && (!splitTreeEntry || treeEntry === 'placement'));
+  const activities = pkg?.activities.filter((activity) =>
+    !splitTreeEntry || treeProgressEntry(activity.id) === treeEntry,
+  );
   const finalCompletion = packageId === 'final-completion';
   async function save(e: { preventDefault(): void }) {
     e.preventDefault();
@@ -159,6 +167,7 @@ export function ProgressForm({
               value={packageId}
               onChange={(e) => {
                 setPackage(e.target.value);
+                setTreeEntry('translocation');
                 setBlock('');
                 setQuantities({});
               }}
@@ -170,6 +179,22 @@ export function ProgressForm({
               ))}
             </select>
           </label>
+          {splitTreeEntry && (
+            <label className="field">
+              Progress type
+              <select
+                value={treeEntry}
+                onChange={(e) => {
+                  setTreeEntry(e.target.value as TreeProgressEntry);
+                  setBlock('');
+                  setQuantities({});
+                }}
+              >
+                <option value="translocation">1. Tree Translocation</option>
+                <option value="placement">2. Tree Placement</option>
+              </select>
+            </label>
+          )}
           {needsBlock && <>
             <label className="field">
               Zone
@@ -202,7 +227,7 @@ export function ProgressForm({
                 Completed
                 <small>Creates a waiting submission. Progress is earned only after Admin approval.</small>
               </label>
-            ) : pkg?.activities.map((a) => (
+            ) : activities?.map((a) => (
               <label className="field" key={a.id}>
                 {a.name}
                 <span className="card-subtitle">
