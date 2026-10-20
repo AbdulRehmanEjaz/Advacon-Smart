@@ -701,7 +701,7 @@ export async function mutate(path: string, req: Request, user: Actor) {
     const core = await loadCore();
     const sitePackage = progressRequiresBlock(user.role, data.packageId, data.items);
     requireThat(
-      sitePackage ? Boolean(data.blockId) : data.packageId === 'translocation' || !data.blockId,
+      sitePackage ? Boolean(data.blockId) : ['translocation', 'new-trees'].includes(data.packageId) || !data.blockId,
       sitePackage
         ? 'Zone and Block are required for this Main Activity.'
         : 'Zone and Block do not apply to this Main Activity.',

@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { type State, number, post } from '@/lib/types';
 import { calculateKpiProgress, targetFor, type Submission } from '@/lib/domain/calculations';
 import { riyadhDate } from '@/lib/domain/date';
-import { treeProgressEntry, type TreeProgressEntry } from '@/lib/domain/progress-entry';
+import { supplyProgressEntry, treeProgressEntry, type SupplyProgressEntry, type TreeProgressEntry } from '@/lib/domain/progress-entry';
 function fieldText(value: unknown) {
   return typeof value === 'string'
     ? value
@@ -67,6 +67,7 @@ export function ProgressForm({
   );
   const [packageId, setPackage] = useState(sitePackages[0]?.id || ''),
     [treeEntry, setTreeEntry] = useState<TreeProgressEntry>('translocation'),
+    [supplyEntry, setSupplyEntry] = useState<SupplyProgressEntry>('selection-transport'),
     [blockId, setBlock] = useState(''),
     [zone, setZone] = useState('A'),
     [workDate, setDate] = useState(riyadhDate()),
@@ -80,6 +81,7 @@ export function ProgressForm({
       // oxlint-disable-next-line react/react-compiler -- Reset the draft only when the modal opens or selected record changes.
       setPackage(editing?.packageId || sitePackages[0]?.id || '');
       setTreeEntry('translocation');
+      setSupplyEntry('selection-transport');
       setBlock(editing?.blockId || '');
       setZone(editing?.blockId?.[0] || 'A');
       setDate(editing?.workDate.slice(0, 10) || riyadhDate());
@@ -103,10 +105,12 @@ export function ProgressForm({
     state.loadingAllocations,
   );
   const splitTreeEntry = state.user.role === 'ADMIN' && packageId === 'translocation' && !editing;
-  const needsBlock = packageId === 'new-trees' ||
+  const splitSupplyEntry = packageId === 'new-trees' && !editing;
+  const needsBlock = (packageId === 'new-trees' && (!splitSupplyEntry || supplyEntry === 'offload-inspection')) ||
     (packageId === 'translocation' && (!splitTreeEntry || treeEntry === 'placement'));
   const activities = pkg?.activities.filter((activity) =>
-    !splitTreeEntry || treeProgressEntry(activity.id) === treeEntry,
+    (!splitTreeEntry || treeProgressEntry(activity.id) === treeEntry) &&
+    (!splitSupplyEntry || supplyProgressEntry(activity.id) === supplyEntry),
   );
   const finalCompletion = packageId === 'final-completion';
   async function save(e: { preventDefault(): void }) {
@@ -168,6 +172,7 @@ export function ProgressForm({
               onChange={(e) => {
                 setPackage(e.target.value);
                 setTreeEntry('translocation');
+                setSupplyEntry('selection-transport');
                 setBlock('');
                 setQuantities({});
               }}
@@ -192,6 +197,22 @@ export function ProgressForm({
               >
                 <option value="translocation">1. Tree Translocation</option>
                 <option value="placement">2. Tree Placement</option>
+              </select>
+            </label>
+          )}
+          {splitSupplyEntry && (
+            <label className="field">
+              Process Type
+              <select
+                value={supplyEntry}
+                onChange={(e) => {
+                  setSupplyEntry(e.target.value as SupplyProgressEntry);
+                  setBlock('');
+                  setQuantities({});
+                }}
+              >
+                <option value="selection-transport">1. Tree Selection &amp; Transport</option>
+                <option value="offload-inspection">2. Offload &amp; Inspection</option>
               </select>
             </label>
           )}
